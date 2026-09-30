@@ -32,3 +32,17 @@ is never committed, and neither is anything rendered from it.
 
 Deploy the three files to `/media/scratch/.nest_gen2_sdk/` (as `test.raw`,
 `fox_frames.raw` and `glyphs.raw` for the current prototype).
+
+## Credits
+
+foxbus runs on Nests rooted with
+[NoLongerEvil-Thermostat](https://github.com/codykociemba/NoLongerEvil-Thermostat)
+by codykociemba, which builds on omap_loader (grant-h / ajb142), the Nest DFU
+Attack research (exploiteers / GTVHacker) and the FULU right-to-repair bounty.
+See [nest_gen2_sdk](https://github.com/integration-technology/nest_gen2_sdk#credits)
+for the full credits.
+
+## Licence
+
+GPL-3.0-only; see [LICENSE](LICENSE). Nest's Akkurat font is licensed separately
+and is never part of this repository.
