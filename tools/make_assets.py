@@ -18,8 +18,6 @@ W = 320
 BOX = 140
 ORIGIN = 160 - BOX // 2
 CENTRE = (159.5, 159.5)
-BLUE = (0x43, 0x5F, 0xA6)
-GLYPH_CHARS = "0123456789.-°C "
 
 
 def bgrx(img):
