@@ -16,7 +16,7 @@ pipeline, and becomes the Elixir app once the SDK package exists.
 black corners, like the stock UI) with the fox upright in the centre.
 
 ```sh
-tools/make_assets.py --font /path/to/AkkuratNest-Bold.ttf
+tools/make_assets.py
 ```
 
 writes to `build/`:
@@ -25,13 +25,12 @@ writes to `build/`:
 |---|---|
 | `screen.raw` | Background, 320×320 BGRX |
 | `fox_frames.raw` | 360 pre-rendered 140×140 fox boxes, one per degree (28 MB; ~3.5 MB on the device's compressed flash) |
-| `glyphs.raw` | Akkurat Bold digits and `.`, `-`, `°`, `C` for the temperature |
 
-Copy the font from your own Nest's `/nestlabs/share/fonts`. It is licensed, so it
-is never committed, and neither is anything rendered from it.
+The temperature text is rendered on the device by the SDK's `textrender` helper
+from the Nest's own Akkurat font, so foxbus needs no font files.
 
-Deploy the three files to `/media/scratch/.nest_gen2_sdk/` (as `test.raw`,
-`fox_frames.raw` and `glyphs.raw` for the current prototype).
+Deploy both files to `/media/scratch/.nest_gen2_sdk/` (as `test.raw` and
+`fox_frames.raw` for the current prototype).
 
 ## Credits
 
