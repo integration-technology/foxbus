@@ -1,0 +1,12 @@
+# Generated device assets (tools/make_assets.py)
+build/
+
+# Nest's Akkurat fonts are commercially licensed: never commit them or glyphs rendered from them
+*.ttf
+*.otf
+glyphs.raw
+
+_build/
+deps/
+*.beam
+erl_crash.dump
