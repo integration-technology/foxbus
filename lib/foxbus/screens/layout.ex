@@ -135,11 +135,12 @@ defmodule Foxbus.Screens.Layout do
 
   defp warning_icon(false, _color), do: []
 
-  # (110, 40) is ~130 px from the screen's centre (160, 160): comfortably inside
-  # the 145 px safe circle, below the clock and above the title row. The first
-  # try put this at (24, 20) — ~195 px out, under the bezel on the real device.
+  # Centred below "min" (y=200) and the bell icon (y=232), at (160, 280) — 120 px
+  # from the screen's centre (160, 160), comfortably inside the 145 px safe
+  # circle even at this larger size. Earlier tries: (24, 20) sat under the
+  # bezel (~195 px out); (110, 40) landed on top of the title text instead.
   defp warning_icon(true, color),
-    do: [{:text, 110, 40, @warning, [font: :icons] ++ text_opts(20, @white, color)}]
+    do: [{:text, 160, 280, @warning, [font: :icons] ++ text_opts(36, @white, color)}]
 
   defp body(nil), do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, @dark)}]
 
