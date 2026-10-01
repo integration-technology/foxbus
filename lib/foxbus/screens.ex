@@ -4,10 +4,11 @@ defmodule Foxbus.Screens do
   screen per watched stop. Turning the dial moves between them, clockwise
   forwards and anticlockwise back, wrapping round; each step clicks.
 
-  On a stop screen, pressing the dial sets the next bus's bell (see
-  `Foxbus.Screens.Layout.press/2`). When an armed bus is 5 minutes or less away
-  the Nest chirps, wakes the screen and shows that stop, until the bell is
-  silenced or the bus has gone.
+  A bus's bell arms itself the moment it's 5 minutes or less away (see
+  `Foxbus.Screens.Layout.auto_arm/2`) — no press needed. Once armed, the Nest
+  chirps, wakes the screen and jumps to that stop, until either the dial is
+  pressed to silence it (see `Foxbus.Screens.Layout.press/2`) or the bus has
+  gone (a different bus arrives next, or it drops off the board).
 
   Arrivals, and the line's disruption status, arrive through
   `Foxbus.Adapters.Sinks.ScreensSink`.
@@ -66,6 +67,7 @@ defmodule Foxbus.Screens do
         fetched_at: Map.put(state.fetched_at, stop, now())
     }
 
+    state = auto_arm_bells(state)
     state = if current(state) == stop, do: render(state), else: state
     {:noreply, update_chirp(state)}
   end
@@ -107,6 +109,7 @@ defmodule Foxbus.Screens do
   # or colour changes.
   def handle_info(:tick, state) do
     schedule_tick()
+    state = auto_arm_bells(state)
     state = if signature(state) != state.shown, do: render(state), else: state
     {:noreply, update_chirp(state)}
   end
@@ -126,6 +129,27 @@ defmodule Foxbus.Screens do
   end
 
   def handle_info(_other, state), do: {:noreply, state}
+
+  # Arms the alarm for any stop whose next bus has just become imminent, with
+  # no press needed first (see Layout.auto_arm/2).
+  defp auto_arm_bells(state) do
+    bells =
+      for stop <- tl(state.screens), reduce: state.bells do
+        acc ->
+          case Layout.auto_arm(bell(state, stop), mode(state, stop)) do
+            :none ->
+              acc
+
+            # auto_arm/2 only returns non-:none for {:arriving, _}, which
+            # Layout.mode/2 only returns for a non-empty arrivals list — so
+            # next_bus/2 here is never nil.
+            new_bell ->
+              Map.put(acc, stop, {Layout.bus_key(next_bus(state, stop)), new_bell})
+          end
+      end
+
+    %{state | bells: bells}
+  end
 
   # Starts chirping for the first stop whose armed bus is arriving (jumping to
   # it), or stops when none is.
