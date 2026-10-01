@@ -5,8 +5,10 @@ defmodule Foxbus.Screens do
   forwards and anticlockwise back, wrapping round; each step clicks.
 
   A bus's bell arms itself the moment it's 5 minutes or less away (see
-  `Foxbus.Screens.Layout.auto_arm/2`) — no press needed. Once armed, the Nest
-  chirps, wakes the screen and jumps to that stop, until either the dial is
+  `Foxbus.Screens.Layout.auto_arm/2`) — no press needed. The Nest only chirps
+  and wakes the screen for the stop currently on display, not for an armed
+  bus at a stop nobody's looking at; turning the dial away stops the chirp,
+  and turning back resumes it. It keeps chirping until either the dial is
   pressed to silence it (see `Foxbus.Screens.Layout.press/2`) or the bus has
   gone (a different bus arrives next, or it drops off the board).
 
@@ -82,7 +84,7 @@ defmodule Foxbus.Screens do
   def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, state) do
     steps = step(direction) + pending_steps()
     state = %{state | index: Layout.navigate(state.index, length(state.screens), steps)}
-    {:noreply, render(state)}
+    {:noreply, state |> render() |> update_chirp()}
   end
 
   def handle_info({:nest_gen2, :climate, %{temperature_c: t}}, state) do
@@ -151,13 +153,14 @@ defmodule Foxbus.Screens do
     %{state | bells: bells}
   end
 
-  # Starts chirping for the first stop whose armed bus is arriving (jumping to
-  # it), or stops when none is.
+  # Chirps only for the stop currently on screen — a bus going off at a stop
+  # nobody's looking at neither sounds nor jumps the screen to it.
   defp update_chirp(state) do
+    stop = current(state)
+
     chirping =
-      Enum.find(tl(state.screens), fn stop ->
-        Layout.chirping?(mode(state, stop), bell(state, stop))
-      end)
+      if stop != :splash and Layout.chirping?(mode(state, stop), bell(state, stop)),
+        do: stop
 
     cond do
       chirping == state.chirping ->
@@ -168,8 +171,7 @@ defmodule Foxbus.Screens do
 
       true ->
         send(self(), :chirp)
-        index = Enum.find_index(state.screens, &(&1 == chirping))
-        render(%{state | chirping: chirping, index: index})
+        %{state | chirping: chirping}
     end
   end
 
