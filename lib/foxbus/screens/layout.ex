@@ -14,10 +14,11 @@ defmodule Foxbus.Screens.Layout do
     * more than 10 minutes away — the list of buses on dark grey (blank when
       there are none left today)
     * 10 minutes or less (`:soon`) — orange, the minutes as a large countdown
-    * 5 minutes or less (`:arriving`) — green; chirps if the bus's bell is armed
+    * 5 minutes or less (`:arriving`) — green; the bell arms itself here (see
+      `auto_arm/2`) and chirps until silenced or the bus has gone
 
-  Any of the three gets a small warning icon, top-left, when the line has an
-  active disruption notice.
+  Any of the three gets a small warning icon, below the countdown, when the
+  line has an active disruption notice.
   """
   alias Foxbus.Domain.Arrival
 
@@ -79,6 +80,16 @@ defmodule Foxbus.Screens.Layout do
   def chirping?({:arriving, _}, :armed), do: true
   def chirping?(_mode, _bell), do: false
 
+  @doc """
+  Arms the alarm by itself once a bus goes from "soon" to "arriving", so it
+  always sounds without needing a press ahead of time. Leaves an already-armed
+  bell alone, and never re-arms a silenced one — once muted, a bus stays muted
+  until it's a different bus (see `bus_key/1`).
+  """
+  @spec auto_arm(bell, mode) :: bell
+  def auto_arm(:none, {:arriving, _}), do: :armed
+  def auto_arm(bell, _mode), do: bell
+
   @doc "Identifies a bus across fetches, so a bell follows the bus it was set for."
   @spec bus_key(Arrival.t()) :: {String.t(), String.t()}
   def bus_key(%Arrival{line: line, destination: destination}), do: {line, destination}
@@ -95,7 +106,7 @@ defmodule Foxbus.Screens.Layout do
   @doc """
   A stop screen. `arrivals` is nil until the first fetch has come back;
   `elapsed_ms` is the time since that fetch; `bell` is the next bus's bell;
-  `disrupted?` shows a small warning icon, top-left, on top of any mode.
+  `disrupted?` shows a small warning icon below the countdown, on top of any mode.
   """
   @spec stop(String.t(), [Arrival.t()] | nil, non_neg_integer, bell, boolean) :: list
   def stop(title, arrivals, elapsed_ms \\ 0, bell \\ :none, disrupted? \\ false) do

@@ -140,6 +140,26 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
+  describe "auto_arm/2" do
+    test "arms itself the moment a bus becomes arriving" do
+      assert Layout.auto_arm(:none, {:arriving, 5}) == :armed
+      assert Layout.auto_arm(:none, {:arriving, 0}) == :armed
+    end
+
+    test "does not arm early, while only soon or in the list" do
+      assert Layout.auto_arm(:none, {:soon, 8}) == :none
+      assert Layout.auto_arm(:none, :list) == :none
+    end
+
+    test "leaves an already-armed bell alone" do
+      assert Layout.auto_arm(:armed, {:arriving, 2}) == :armed
+    end
+
+    test "never re-arms a silenced bell for the same bus" do
+      assert Layout.auto_arm(:silenced, {:arriving, 1}) == :silenced
+    end
+  end
+
   describe "the disruption warning icon" do
     defp warning_glyphs(ops),
       do: for({:text, _, _, t, opts} <- ops, opts[:font] == :icons, do: t)
