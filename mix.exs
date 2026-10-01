@@ -33,6 +33,8 @@ defmodule Foxbus.MixProject do
         disruptions_line: "105",
         disruptions_source: Foxbus.Adapters.Sources.CarouselDisruptionsSource,
         disruptions_sink: Foxbus.Adapters.Sinks.ScreensSink,
+        stop_closure_source: Foxbus.Adapters.Sources.CarouselStopClosureSource,
+        stop_closure_sink: Foxbus.Adapters.Sinks.ScreensSink,
         assets_dir: "/media/scratch/.nest_gen2_sdk/foxbus",
         screen_step_degrees: 45
       ]
