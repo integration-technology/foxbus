@@ -6,6 +6,9 @@ build/
 *.otf
 glyphs.raw
 
+# Exception: Google's Material Icons font (Apache 2.0), used for the bell/warning glyphs
+!priv/MaterialIcons-Regular.ttf
+
 _build/
 deps/
 *.beam
