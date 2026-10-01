@@ -52,7 +52,9 @@ MIX_ENV=prod mix compile
 corners, like the stock UI) with the fox in the centre. `tools/make_assets.py`
 turns it into `build/screen.raw`; deploy that to
 `/media/scratch/.nest_gen2_sdk/foxbus/screen.raw`. Text is rendered on the device
-from the Nest's own Akkurat font by the SDK, so foxbus needs no font files.
+from the Nest's own Akkurat font by the SDK, so foxbus needs no font file for
+that. The bell and warning icons are a separate glyph font, bundled at
+`priv/MaterialIcons-Regular.ttf` — see Licence below.
 
 ## Credits
 
@@ -67,4 +69,8 @@ for the full credits. Bus times come from Carousel Buses' public departure board
 
 GPL-3.0-only; see [LICENSE](LICENSE). Nest's Akkurat font is licensed separately
 and is never part of this repository. `priv/cacerts.pem` is Mozilla's CA
-certificate bundle under MPL-2.0.
+certificate bundle under MPL-2.0. `priv/MaterialIcons-Regular.ttf` is Google's
+Material Icons font, an unmodified copy of version 1.017 from
+[google/material-design-icons](https://raw.githubusercontent.com/google/material-design-icons/master/font/MaterialIcons-Regular.ttf)
+(sha256 `ef149f08bdd2ff09a4e2c8573476b7b0f3fbb15b623954ade59899e7175bedda`),
+licensed under Apache-2.0 — see [priv/MaterialIcons-LICENSE.txt](priv/MaterialIcons-LICENSE.txt).
