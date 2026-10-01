@@ -11,9 +11,13 @@ back, with Nest's own click:
 3. **To High Wycombe** — the next buses at Carousel stop `040000002202`.
 
 A bus shows its line and when it's due: a countdown at 10 minutes or less
-("4 min"), otherwise the clock time ("at 15:22"). Live buses are white, timetabled
-ones slightly dimmer. The screen wakes on the dial or when someone walks up, and
-sleeps after 30 seconds.
+("4 min"), otherwise the clock time ("at 15:22", or "Tomorrow 06:25" once the
+board has rolled over to tomorrow's first services). Live buses are white,
+timetabled ones slightly dimmer. If a stop's board is simply empty, the screen
+says "No more buses today". If Carousel instead names that stop's exact ATCO
+code as affected by a notice, the screen turns red with the direction and the
+notice's explanation — no countdown, since there's no real bus behind it. The
+screen wakes on the dial or when someone walks up, and sleeps after 30 seconds.
 
 ## Structure
 

@@ -56,7 +56,7 @@ defmodule Foxbus.Adapters.Sources.CarouselScrapeSource do
 
     case Regex.named_captures(@pattern, String.trim(text)) do
       %{"line" => line, "destination" => destination, "time" => time, "status" => status} ->
-        {eta, scheduled} = parse_time(String.trim(time), now)
+        {eta, scheduled, day} = parse_time(String.trim(time), now)
 
         [
           %Arrival{
@@ -64,6 +64,7 @@ defmodule Foxbus.Adapters.Sources.CarouselScrapeSource do
             destination: String.trim(destination),
             eta_minutes: eta,
             scheduled_time: scheduled,
+            day: day,
             status: if(status == "Live", do: :live, else: :scheduled)
           }
         ]
@@ -78,22 +79,23 @@ defmodule Foxbus.Adapters.Sources.CarouselScrapeSource do
       match = Regex.run(~r/^(\d+)\s*mins?$/, time, capture: :all_but_first) ->
         minutes = match |> hd() |> String.to_integer()
         due = NaiveDateTime.add(now, minutes * 60, :second)
-        {minutes, Time.new!(due.hour, due.minute, 0)}
+        {minutes, Time.new!(due.hour, due.minute, 0), :today}
 
       match = Regex.run(~r/^(\d{1,2}):(\d{2})$/, time, capture: :all_but_first) ->
         [h, m] = Enum.map(match, &String.to_integer/1)
         scheduled = Time.new!(h, m, 0)
-        {minutes_until(scheduled, NaiveDateTime.to_time(now)), scheduled}
+        {minutes, day} = minutes_until(scheduled, NaiveDateTime.to_time(now))
+        {minutes, scheduled, day}
 
       true ->
-        {0, nil}
+        {0, nil, :today}
     end
   end
 
   # Times earlier than now by more than an hour are taken to be tomorrow.
   defp minutes_until(target, now) do
     diff = Time.diff(target, now, :minute)
-    if diff < -60, do: diff + 24 * 60, else: max(diff, 0)
+    if diff < -60, do: {diff + 24 * 60, :tomorrow}, else: {max(diff, 0), :today}
   end
 
   # Carousel's Date header is a second opinion on UTC; NestGen2.Clock uses it

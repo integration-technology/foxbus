@@ -69,8 +69,10 @@ defmodule Foxbus.Screens.LayoutTest do
       assert texts(Layout.stop("To Chesham", nil)) == ["To Chesham", "Checking times"]
     end
 
-    test "once today's buses are done the screen is blank" do
-      assert Layout.stop("To Chesham", []) == [{:background, "#1C1C1E"}]
+    test "once today's buses are done it says so, with the title still shown" do
+      ops = Layout.stop("To Chesham", [])
+      assert background(ops) == "#1C1C1E"
+      assert texts(ops) == ["To Chesham", "No more buses today"]
     end
   end
 
@@ -208,6 +210,49 @@ defmodule Foxbus.Screens.LayoutTest do
       assert opts[:background] == "#435FA6"
       assert {:text, _, _, "09:05", opts} = clock(Layout.stop("To Chesham", []))
       assert opts[:background] == "#1C1C1E"
+    end
+  end
+
+  describe "closed/2 (stop closure)" do
+    test "red, with the direction and the explanation, no countdown" do
+      ops = Layout.closed("To Chesham", "No buses today.")
+      assert background(ops) == "#C62828"
+      assert texts(ops) == ["To Chesham", "No buses today."]
+    end
+
+    test "a long explanation wraps onto several lines" do
+      ops =
+        Layout.closed(
+          "To Chesham",
+          "Due to emergency Village Road closure we are unable to serve Coleshill. " <>
+            "We apologise for any inconvenience caused."
+        )
+
+      [_title | lines] = texts(ops)
+      assert length(lines) > 1
+      assert Enum.all?(lines, &(String.length(&1) <= 22))
+    end
+
+    test "an extremely long explanation is truncated, not drawn past six lines" do
+      explanation = Enum.map_join(1..50, " ", fn i -> "word#{i}" end)
+      ops = Layout.closed("To Chesham", explanation)
+      [_title | lines] = texts(ops)
+      assert length(lines) == 6
+    end
+  end
+
+  describe "wrap/2" do
+    test "keeps a short line as one line" do
+      assert Layout.wrap("No buses today.", 22) == ["No buses today."]
+    end
+
+    test "breaks at word boundaries once the budget is exceeded" do
+      assert Layout.wrap("one two three four five", 11) == ["one two", "three four", "five"]
+    end
+
+    test "never splits a single word" do
+      assert Layout.wrap("supercalifragilisticexpialidocious", 5) ==
+               ["supercalifragilisticexpialidocious"]
     end
   end
 end

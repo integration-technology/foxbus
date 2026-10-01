@@ -4,9 +4,18 @@ defmodule Foxbus.Domain.Arrival do
   """
 
   @enforce_keys [:line, :destination, :eta_minutes, :status]
-  defstruct [:line, :destination, :eta_minutes, :status, :delay_minutes, :scheduled_time]
+  defstruct [
+    :line,
+    :destination,
+    :eta_minutes,
+    :status,
+    :delay_minutes,
+    :scheduled_time,
+    day: :today
+  ]
 
   @type status :: :live | :scheduled
+  @type day :: :today | :tomorrow
 
   @type t :: %__MODULE__{
           line: String.t(),
@@ -14,7 +23,8 @@ defmodule Foxbus.Domain.Arrival do
           eta_minutes: non_neg_integer,
           status: status,
           delay_minutes: integer | nil,
-          scheduled_time: Time.t() | nil
+          scheduled_time: Time.t() | nil,
+          day: day
         }
 
   @countdown_threshold_minutes 10
@@ -25,12 +35,16 @@ defmodule Foxbus.Domain.Arrival do
 
   @doc """
   How to show when the bus is due: a countdown once it is close enough that a
-  minute matters (10 minutes or less), otherwise the clock time to look for.
+  minute matters (10 minutes or less), otherwise the clock time to look for —
+  marked "Tomorrow" when the board has rolled over to the next day's first
+  services, so a late-night "at 06:25" doesn't read as tonight.
   """
   @spec eta_text(t) :: String.t()
   def eta_text(%__MODULE__{eta_minutes: m}) when m <= @countdown_threshold_minutes, do: "#{m} min"
   def eta_text(%__MODULE__{scheduled_time: nil, eta_minutes: m}), do: "#{m} min"
 
-  def eta_text(%__MODULE__{scheduled_time: %Time{} = t}),
-    do: "at " <> (t |> Time.to_string() |> String.slice(0, 5))
+  def eta_text(%__MODULE__{scheduled_time: %Time{} = t, day: day}) do
+    prefix = if day == :tomorrow, do: "Tomorrow ", else: "at "
+    prefix <> (t |> Time.to_string() |> String.slice(0, 5))
+  end
 end

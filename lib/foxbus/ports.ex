@@ -33,3 +33,23 @@ defmodule Foxbus.Ports.DisruptionsSink do
 
   @callback publish(disrupted? :: boolean) :: :ok | {:error, term}
 end
+
+defmodule Foxbus.Ports.StopClosureSource do
+  @moduledoc """
+  Inbound port: anything that can answer "is this specific stop unservable
+  right now, and if so why?" — distinct from DisruptionsSource, which only
+  answers for a line as a whole.
+  """
+
+  @callback closure(atco_code :: String.t()) :: {:ok, String.t() | nil} | {:error, term}
+end
+
+defmodule Foxbus.Ports.StopClosureSink do
+  @moduledoc """
+  Outbound port: anything that shows a stop's closure explanation (or clears
+  it) — the Nest's screens here. Named publish_closure/2, not publish/2, so it
+  doesn't collide with ArrivalsSink's publish/2 in a module implementing both.
+  """
+
+  @callback publish_closure(stop :: atom, explanation :: String.t() | nil) :: :ok | {:error, term}
+end

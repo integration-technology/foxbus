@@ -12,8 +12,12 @@ defmodule Foxbus.Screens do
   pressed to silence it (see `Foxbus.Screens.Layout.press/2`) or the bus has
   gone (a different bus arrives next, or it drops off the board).
 
-  Arrivals, and the line's disruption status, arrive through
-  `Foxbus.Adapters.Sinks.ScreensSink`.
+  When Carousel names a stop's exact ATCO code as affected by a notice, its
+  screen turns red with the direction and the notice's explanation in place of
+  any countdown — there are no buses to show a time for.
+
+  Arrivals, the line's disruption status, and a stop's closure, all arrive
+  through `Foxbus.Adapters.Sinks.ScreensSink`.
   """
   use GenServer
   alias NestGen2.{Display, Image, Piezo, Power}
@@ -33,6 +37,10 @@ defmodule Foxbus.Screens do
   @spec show_disruption(boolean) :: :ok
   def show_disruption(disrupted?), do: GenServer.cast(__MODULE__, {:disruption, disrupted?})
 
+  @spec show_closure(atom, String.t() | nil) :: :ok
+  def show_closure(stop, explanation),
+    do: GenServer.cast(__MODULE__, {:closure, stop, explanation})
+
   @impl true
   def init(nil) do
     stops = Application.fetch_env!(:foxbus, :stops)
@@ -51,6 +59,7 @@ defmodule Foxbus.Screens do
       fetched_at: %{},
       bells: %{},
       disrupted: false,
+      closures: %{},
       temperature: nil,
       background: background,
       icons: Application.app_dir(:foxbus, ["priv", "MaterialIcons-Regular.ttf"]),
@@ -78,6 +87,13 @@ defmodule Foxbus.Screens do
     state = %{state | disrupted: disrupted?}
     state = if current(state) != :splash, do: render(state), else: state
     {:noreply, state}
+  end
+
+  def handle_cast({:closure, stop, explanation}, state) do
+    state = %{state | closures: Map.put(state.closures, stop, explanation)}
+    state = auto_arm_bells(state)
+    state = if current(state) == stop, do: render(state), else: state
+    {:noreply, update_chirp(state)}
   end
 
   @impl true
@@ -208,7 +224,15 @@ defmodule Foxbus.Screens do
   end
 
   defp elapsed(state, stop), do: now() - Map.get(state.fetched_at, stop, now())
-  defp mode(state, stop), do: Layout.mode(Map.get(state.arrivals, stop), elapsed(state, stop))
+  defp closed?(state, stop), do: Map.get(state.closures, stop) != nil
+
+  # A closed stop never counts as arriving/soon: there's no real bus behind a
+  # stale scrape, so nothing should auto-arm or chirp for it.
+  defp mode(state, stop) do
+    if closed?(state, stop),
+      do: :list,
+      else: Layout.mode(Map.get(state.arrivals, stop), elapsed(state, stop))
+  end
 
   defp signature(state) do
     minute = Calendar.strftime(LondonTime.now(), "%H:%M")
@@ -219,7 +243,7 @@ defmodule Foxbus.Screens do
 
       stop ->
         {stop, mode(state, stop), bell(state, stop), Map.get(state.arrivals, stop),
-         state.disrupted, minute}
+         state.disrupted, Map.get(state.closures, stop), minute}
     end
   end
 
@@ -236,13 +260,19 @@ defmodule Foxbus.Screens do
           Layout.splash(state.temperature)
 
         stop ->
-          Layout.stop(
-            state.titles[stop],
-            Map.get(state.arrivals, stop),
-            elapsed(state, stop),
-            bell(state, stop),
-            state.disrupted
-          )
+          case Map.get(state.closures, stop) do
+            nil ->
+              Layout.stop(
+                state.titles[stop],
+                Map.get(state.arrivals, stop),
+                elapsed(state, stop),
+                bell(state, stop),
+                state.disrupted
+              )
+
+            explanation ->
+              Layout.closed(state.titles[stop], explanation)
+          end
       end
 
     ops |> Layout.with_clock(LondonTime.now()) |> Enum.each(&draw(&1, state))

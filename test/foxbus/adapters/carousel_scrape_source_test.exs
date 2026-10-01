@@ -51,6 +51,27 @@ defmodule Foxbus.Adapters.Sources.CarouselScrapeSourceTest do
 
     assert [a] = CarouselScrapeSource.parse_html(html, ~N[2026-09-30 23:30:00])
     assert a.eta_minutes == 400
+    assert a.day == :tomorrow
+  end
+
+  test "a later time the same evening stays today" do
+    html =
+      page([
+        "Service - 105. Destination - Chesham. Departure time - 23:50. Departure 1 of 1. Scheduled."
+      ])
+
+    assert [a] = CarouselScrapeSource.parse_html(html, ~N[2026-09-30 23:30:00])
+    assert a.day == :today
+  end
+
+  test "a live \"N mins\" countdown is always today" do
+    html =
+      page([
+        "Service - 105. Destination - Chesham. Departure time - 5 mins. Departure 1 of 1. Live."
+      ])
+
+    assert [a] = CarouselScrapeSource.parse_html(html, @now)
+    assert a.day == :today
   end
 
   test "keeps document order" do

@@ -19,12 +19,17 @@ defmodule Foxbus.Screens.Layout do
 
   Any of the three gets a small warning icon, below the countdown, when the
   line has an active disruption notice.
+
+  A fourth look, `closed/2`, replaces all of that: when Carousel's board
+  names this exact stop as affected by a notice, there is no countdown to
+  show — just the direction and why, on red.
   """
   alias Foxbus.Domain.Arrival
 
   @blue "#435FA6"
   @orange "#E87A1E"
   @green "#2E9E4F"
+  @red "#C62828"
   @white "#FFFFFF"
   @dark "#1C1C1E"
   @dim "#9A9AA0"
@@ -112,7 +117,11 @@ defmodule Foxbus.Screens.Layout do
   def stop(title, arrivals, elapsed_ms \\ 0, bell \\ :none, disrupted? \\ false) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
-        [blank() | warning_icon(disrupted?, @dark)]
+        [
+          blank(),
+          {:text, 160, 54, title, text_opts(24, @white, @dark)},
+          {:text, 160, 140, "No more buses today", text_opts(22, @dim, @dark)}
+        ] ++ warning_icon(disrupted?, @dark)
 
       :list ->
         [blank(), {:text, 160, 54, title, text_opts(24, @white, @dark)} | body(arrivals)] ++
@@ -124,6 +133,53 @@ defmodule Foxbus.Screens.Layout do
       {:arriving, m} ->
         countdown(title, hd(arrivals), m, @green, bell) ++ warning_icon(disrupted?, @green)
     end
+  end
+
+  @doc """
+  The stop-closure screen: Carousel's board has named this exact stop (by ATCO
+  code) as affected by a notice, so there's no countdown to show, just the
+  direction and why — on red, in place of the usual three looks.
+  """
+  @spec closed(String.t(), String.t()) :: list
+  def closed(title, explanation) do
+    body =
+      explanation
+      |> wrap(22)
+      # 6 lines x 28 px from y=104 reaches y=244, comfortably inside the 145 px
+      # safe circle; a longer notice is truncated rather than drawn off-screen.
+      |> Enum.take(6)
+      |> Enum.with_index()
+      |> Enum.map(fn {line, i} ->
+        {:text, 160, 104 + i * 28, line, text_opts(20, @white, @red)}
+      end)
+
+    [{:background, @red}, {:text, 160, 54, title, text_opts(24, @white, @red)} | body]
+  end
+
+  @doc """
+  Greedy word-wrap to a fixed character budget per line. There's no font
+  metrics available on this device (no `Text.measure`), so this is a
+  conservative guess tuned by eye on the real screen rather than measured —
+  see Layout's moduledoc on the safe circle shrinking width away from centre.
+  """
+  @spec wrap(String.t(), pos_integer) :: [String.t()]
+  def wrap(text, max_chars) do
+    text
+    |> String.split()
+    |> Enum.reduce([], fn word, lines ->
+      case lines do
+        [] ->
+          [word]
+
+        [current | rest] ->
+          candidate = current <> " " <> word
+
+          if String.length(candidate) <= max_chars,
+            do: [candidate | rest],
+            else: [word, current | rest]
+      end
+    end)
+    |> Enum.reverse()
   end
 
   defp countdown(title, bus, minutes, color, bell) do

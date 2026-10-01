@@ -2,13 +2,14 @@ defmodule Foxbus.Domain.ArrivalTest do
   use ExUnit.Case, async: true
   alias Foxbus.Domain.Arrival
 
-  defp arrival(eta, scheduled \\ nil),
+  defp arrival(eta, scheduled \\ nil, day \\ :today),
     do: %Arrival{
       line: "105",
       destination: "Chesham",
       eta_minutes: eta,
       status: :live,
-      scheduled_time: scheduled
+      scheduled_time: scheduled,
+      day: day
     }
 
   describe "eta_text/1" do
@@ -24,6 +25,10 @@ defmodule Foxbus.Domain.ArrivalTest do
 
     test "falls back to minutes when there is no clock time" do
       assert Arrival.eta_text(arrival(25)) == "25 min"
+    end
+
+    test "marks tomorrow's first services, so a late-night time isn't mistaken for tonight" do
+      assert Arrival.eta_text(arrival(400, ~T[06:25:00], :tomorrow)) == "Tomorrow 06:25"
     end
   end
 
