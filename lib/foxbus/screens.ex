@@ -4,6 +4,10 @@ defmodule Foxbus.Screens do
   screen per watched stop. Turning the dial moves between them, clockwise
   forwards and anticlockwise back, wrapping round; each step clicks.
 
+  For testing: if nobody touches the dial or button within 10 s of boot, it
+  moves off the splash onto the first stop by itself, so a restart shows live
+  times without a manual turn. Any real interaction cancels this.
+
   A bus's bell arms itself the moment it's 5 minutes or less away (see
   `Foxbus.Screens.Layout.auto_arm/2`) — no press needed. The Nest only chirps
   and wakes the screen for the stop currently on display, not for an armed
@@ -31,6 +35,7 @@ defmodule Foxbus.Screens do
   alias Foxbus.Screens.Layout
 
   @tick_ms 10_000
+  @auto_advance_ms 10_000
   @chirp_every_ms 3_000
   # Two quick rising tones: {frequency Hz, length ms, delay ms from the start}.
   @chirp [{2600, 70, 0}, {3300, 90, 130}]
@@ -56,6 +61,7 @@ defmodule Foxbus.Screens do
     NestGen2.Dial.set_step(Application.fetch_env!(:foxbus, :screen_step_degrees))
     NestGen2.subscribe([:dial_step, :climate, :button])
     schedule_tick()
+    auto_advance_timer = Process.send_after(self(), :auto_advance, @auto_advance_ms)
 
     screens = [:splash | Enum.map(stops, &elem(&1, 0))]
     default_index = Enum.find_index(screens, &(&1 == Foxbus.Config.default_screen())) || 0
@@ -74,7 +80,8 @@ defmodule Foxbus.Screens do
       icons: Application.app_dir(:foxbus, ["priv", "MaterialIcons-Regular.ttf"]),
       shown: nil,
       chirping: nil,
-      power_hold: nil
+      power_hold: nil,
+      auto_advance_timer: auto_advance_timer
     }
 
     {:ok, render(state)}
@@ -109,6 +116,7 @@ defmodule Foxbus.Screens do
   @impl true
   def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, state) do
     steps = step(direction) + pending_steps()
+    state = cancel_auto_advance(state)
     state = %{state | index: Layout.navigate(state.index, length(state.screens), steps)}
     {:noreply, state |> render() |> update_chirp()}
   end
@@ -119,6 +127,7 @@ defmodule Foxbus.Screens do
   end
 
   def handle_info({:nest_gen2, :button, :down}, state) do
+    state = cancel_auto_advance(state)
     stop = current(state)
 
     case next_bus(state, stop) do
@@ -130,6 +139,22 @@ defmodule Foxbus.Screens do
         new_bell = Layout.press(bell(state, stop), chirping?)
         state = put_in(state.bells[stop], {Layout.bus_key(bus), new_bell})
         {:noreply, state |> render() |> update_chirp()}
+    end
+  end
+
+  # For testing: moves off the splash onto the first stop after a few seconds
+  # of nobody touching the dial or button, so a restart doesn't need a manual
+  # turn to see live times. Does nothing once cancelled by real interaction,
+  # or if there's no stop to move to.
+  def handle_info(:auto_advance, state) do
+    state = %{state | auto_advance_timer: nil}
+
+    case {state.index, Enum.at(state.screens, 1)} do
+      {0, stop} when stop != nil ->
+        {:noreply, %{state | index: 1} |> render() |> update_chirp()}
+
+      _ ->
+        {:noreply, state}
     end
   end
 
@@ -209,6 +234,13 @@ defmodule Foxbus.Screens do
 
   defp release_power_hold(%{power_hold: nil}), do: :ok
   defp release_power_hold(%{power_hold: hold}), do: Power.release(hold)
+
+  defp cancel_auto_advance(%{auto_advance_timer: nil} = state), do: state
+
+  defp cancel_auto_advance(state) do
+    Process.cancel_timer(state.auto_advance_timer)
+    %{state | auto_advance_timer: nil}
+  end
 
   # A quick spin queues several steps; take them all in one redraw.
   defp pending_steps do
