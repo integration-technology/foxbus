@@ -7,7 +7,10 @@ defmodule Foxbus.Screens.SettingsLayout do
   case added to its `draw/2`), everything meant to stay inside the 145 px
   safe circle around (160, 160).
 
-  Positions here are a first guess, untested on the real device — like every
+  `menu/1` and `networks/1` were verified on the real device and both had
+  bugs fixed from that capture (the network row's SSID was drawn in the icon
+  font by mistake; the signal bars overlapped the IP text). `password/1`,
+  `connecting/0` and `result/1` are still a first guess, untested — like every
   other screen in this app, expect to move things after seeing a photo.
 
   Known simplifications:
@@ -18,7 +21,7 @@ defmodule Foxbus.Screens.SettingsLayout do
       rather than "for a second" — same reason, no extra timer added.
   """
 
-  alias Foxbus.Screens.Settings
+  alias Foxbus.Screens.{Layout, Settings}
 
   @dark "#1C1C1E"
   @white "#FFFFFF"
@@ -53,9 +56,9 @@ defmodule Foxbus.Screens.SettingsLayout do
     ] ++
       signal_bars(s.wifi_status.signal_dbm) ++
       [
-        {:text, 160, 168, versions_text(s.versions), text_opts(13, @dim)},
-        menu_item("Change Wi-Fi", 200, s.highlight == 0),
-        menu_item("Back", 230, s.highlight == 1)
+        {:text, 160, 182, versions_text(s.versions), text_opts(13, @dim)},
+        menu_item("Change Wi-Fi", 205, s.highlight == 0),
+        menu_item("Back", 235, s.highlight == 1)
       ]
   end
 
@@ -67,6 +70,10 @@ defmodule Foxbus.Screens.SettingsLayout do
   # 4 bars, bottom-aligned, increasing height; "lit" bars white, the rest a
   # dim outline colour. signal_dbm buckets are a rough guess (-55 excellent
   # down to below -85 unusable) — not measured against this hardware's radio.
+  #
+  # A device capture showed these (base_y 150) overlapping the bottom of the
+  # IP text (y=112, size 26, so bottom ~138) — base_y is now 172, clearing
+  # it with an ~8 px gap.
   defp signal_bars(nil), do: []
 
   defp signal_bars(dbm) do
@@ -74,7 +81,7 @@ defmodule Foxbus.Screens.SettingsLayout do
     bar_w = 10
     gap = 6
     heights = [8, 14, 20, 26]
-    base_y = 150
+    base_y = 172
     start_x = 160 - (4 * bar_w + 3 * gap) / 2
 
     heights
@@ -106,7 +113,7 @@ defmodule Foxbus.Screens.SettingsLayout do
     visible = s.networks |> Enum.slice(window_start, @visible_networks) |> Enum.with_index()
 
     rows =
-      Enum.map(visible, fn {network, i} ->
+      Enum.flat_map(visible, fn {network, i} ->
         index = window_start + i
         network_row(network, 90 + i * 34, s.highlight == index)
       end)
@@ -128,23 +135,33 @@ defmodule Foxbus.Screens.SettingsLayout do
     highlight |> Kernel.-(1) |> max(0) |> min(max_start)
   end
 
+  # A device capture showed the whole row (SSID + lock/tick) drawn as one
+  # string with font: :icons: the SSID came out blank with tofu boxes for its
+  # underscores, since those characters aren't in the icon font at all. The
+  # SSID and the glyphs need to be separate ops — left/right-aligned within
+  # x=[40,280], the tightest row's safe width (the row closest to the title,
+  # ~70 px from centre vertically, has only ~254 px to work with; deeper rows
+  # have more room, but this fits all of them).
   defp network_row(network, y, highlighted?) do
     color = if highlighted?, do: @white, else: @dim
     prefix = if highlighted?, do: "› ", else: ""
-    marks = [if(network.secured, do: @lock), if(network.saved, do: @check)] |> Enum.filter(& &1)
-    mark_text = if marks == [], do: "", else: " " <> Enum.join(marks, " ")
+    label = Layout.truncate(prefix <> network.ssid, 20)
+    ssid_op = {:text, 40, y, label, text_opts(18, color, @dark, :left)}
 
-    {:text, 160, y, prefix <> network.ssid <> mark_text,
-     [font: icon_font_if_marked(marks)] ++ text_opts(18, color)}
+    glyphs = [if(network.secured, do: @lock), if(network.saved, do: @check)] |> Enum.filter(& &1)
+
+    case glyphs do
+      [] ->
+        [ssid_op]
+
+      glyphs ->
+        icon_op =
+          {:text, 280, y, Enum.join(glyphs, " "),
+           [font: :icons] ++ text_opts(18, color, @dark, :right)}
+
+        [ssid_op, icon_op]
+    end
   end
-
-  # Material Icons glyphs are interspersed with plain SSID text in the same
-  # row, which needs the icon font active for the whole string — on real
-  # text-rendering hardware (NestGen2.Text) this may need the SSID itself
-  # drawn as a separate op from the glyphs instead; untested assumption,
-  # flagged for a device check same as the rest of this screen.
-  defp icon_font_if_marked([]), do: nil
-  defp icon_font_if_marked(_marks), do: :icons
 
   defp password(s) do
     entries = Settings.wheel_entries(s.wheel_group)
@@ -210,6 +227,6 @@ defmodule Foxbus.Screens.SettingsLayout do
     "Couldn't join; back on #{ssid}"
   end
 
-  defp text_opts(size, color, background \\ @dark),
-    do: [size: size, color: color, background: background, align: :center]
+  defp text_opts(size, color, background \\ @dark, align \\ :center),
+    do: [size: size, color: color, background: background, align: align]
 end

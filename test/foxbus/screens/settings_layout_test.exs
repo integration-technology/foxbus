@@ -51,6 +51,17 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
       ops = SettingsLayout.render(Settings.open(status, @versions))
       assert Enum.count(ops, &match?({:rect, _, _, _, _, _}, &1)) == 0
     end
+
+    test "the signal bars don't overlap the IP text" do
+      ops = SettingsLayout.render(Settings.open(@status, @versions))
+
+      {:text, _x, ip_y, "192.168.1.42", ip_opts} =
+        Enum.find(ops, &match?({:text, _, _, "192.168.1.42", _}, &1))
+
+      ip_bottom = ip_y + ip_opts[:size]
+      bar_tops = for {:rect, _x, y, _w, _h, _color} <- ops, do: y
+      assert Enum.all?(bar_tops, &(&1 >= ip_bottom))
+    end
   end
 
   describe "scanning" do
@@ -97,6 +108,38 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
     test "doesn't crash with an empty network list" do
       ops = at_networks([], 0) |> SettingsLayout.render()
       assert Enum.any?(texts(ops), &String.contains?(&1, "Back"))
+    end
+
+    test "the SSID is never drawn in the icon font (device bug: tofu boxes, blank name)" do
+      networks = [network("Secured_Network", secured: true, saved: true)]
+      ops = at_networks(networks) |> SettingsLayout.render()
+
+      icon_texts =
+        for {:text, _x, _y, text, opts} <- ops, opts[:font] == :icons, do: text
+
+      refute Enum.any?(icon_texts, &String.contains?(&1, "Secured_Network"))
+      assert Enum.any?(texts(ops), &String.contains?(&1, "Secured_Network"))
+    end
+
+    test "secured and saved both show as icon-font glyphs, separate from the SSID" do
+      networks = [network("A", secured: true, saved: true)]
+      ops = at_networks(networks) |> SettingsLayout.render()
+      icon_ops = for {:text, _x, _y, text, opts} <- ops, opts[:font] == :icons, do: text
+      assert length(icon_ops) == 1
+      assert icon_ops == ["\u{E897} \u{E5CA}"]
+    end
+
+    test "an open, unsaved network shows no lock/tick glyphs at all" do
+      networks = [network("Open", secured: false, saved: false)]
+      ops = at_networks(networks) |> SettingsLayout.render()
+      refute Enum.any?(ops, &match?({:text, _, _, _, [font: :icons] ++ _}, &1))
+    end
+
+    test "a long SSID is truncated rather than overflowing the row" do
+      long_ssid = String.duplicate("A", 40)
+      ops = at_networks([network(long_ssid)]) |> SettingsLayout.render()
+      row_text = texts(ops) |> Enum.find(&String.contains?(&1, "AAA"))
+      assert String.length(row_text) <= 20
     end
   end
 
