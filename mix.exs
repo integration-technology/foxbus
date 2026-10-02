@@ -53,6 +53,9 @@ defmodule Foxbus.MixProject do
         disruptions_sink: Foxbus.Adapters.Sinks.ScreensSink,
         stop_closure_source: Foxbus.Adapters.Sources.CarouselStopClosureSource,
         stop_closure_sink: Foxbus.Adapters.Sinks.ScreensSink,
+        # TEMPORARY: the fake, until nest_gen2 0.2.0 (NestGen2.Wifi) ships —
+        # swap to Foxbus.Adapters.Sources.NestGen2WifiSource once it's live.
+        wifi_source: Foxbus.Adapters.Sources.FakeWifiSource,
         assets_dir: "/media/scratch/.nest_gen2_sdk/foxbus",
         # Runtime override file (route, stops, default screen) — see
         # Foxbus.Config. nil means "config.exs next to assets_dir".

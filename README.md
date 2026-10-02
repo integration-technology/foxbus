@@ -51,6 +51,7 @@ Hexagonal, carried over from the `busstop` app:
 | Source adapter | `Foxbus.Adapters.Sources.CarouselScrapeSource` (Carousel's board over HTTPS); `StubSource` for development |
 | Driving adapter | `Foxbus.Adapters.Schedulers.AdaptiveBusPoller` — 60 s, 30 s near a bus, 30 min when there are none |
 | Sink adapter | `Foxbus.Adapters.Sinks.ScreensSink` → `Foxbus.Screens` (drawing) and `Foxbus.Screens.Layout` (pure layout) |
+| Settings | `Foxbus.Ports.WifiSource`, `Foxbus.Screens.Settings` (state machine) + `Foxbus.Screens.SettingsLayout` (pure layout) — see below |
 
 UK time comes from `Foxbus.LondonTime` (the fixed BST rule) instead of tzdata,
 and HTTPS is verified against Mozilla's CA set in `priv/cacerts.pem` (from
@@ -69,6 +70,21 @@ edit it, and restart the app (`app_watchdog.sh` or `kill -TERM 1`) — no
 recompile or redeploy needed. A missing file, or a key it doesn't set, falls
 back to mix.exs' compiled `env`; a malformed file is ignored rather than
 stopping the app from booting.
+
+## Wi-Fi settings (in progress)
+
+Pressing the dial on the splash opens settings: Wi-Fi status (SSID, IP,
+signal), the foxbus and SDK versions, and a flow to join a different network
+(scan → pick → a character-wheel password entry for secured networks it
+doesn't already know → connect). ~60 s idle, or selecting Back, returns to
+the splash.
+
+This is built against `Foxbus.Ports.WifiSource`, a port with two adapters:
+`FakeWifiSource` (deterministic, no real network — what `mix.exs` currently
+configures) and `NestGen2WifiSource` (a thin wrapper over `NestGen2.Wifi`,
+which doesn't exist until nest_gen2 0.2.0). **Not yet deployed with the fake
+adapter live** — swap `wifi_source` in `mix.exs` to `NestGen2WifiSource` once
+0.2.0 is available, and this becomes real.
 
 ## Build and test
 
