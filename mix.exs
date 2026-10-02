@@ -11,10 +11,21 @@ defmodule Foxbus.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: [test: "test --no-start"],
       deps: [
-        {:nest_gen2, path: "../nest_gen2_sdk"},
+        nest_gen2_dep(),
         {:floki, "~> 0.38"}
       ]
     ]
+  end
+
+  # The SDK as the tagged GitHub release, or a local path for co-development
+  # (set NEST_GEN2_PATH when working on both repos at once). Once nest_gen2 is
+  # on Hex: {:nest_gen2, "~> 0.1.0"} — the trailing .0 matters, since "~> 0.1"
+  # alone would also allow a breaking 0.2 before 1.0.
+  defp nest_gen2_dep do
+    case System.get_env("NEST_GEN2_PATH") do
+      nil -> {:nest_gen2, github: "integration-technology/nest_gen2_sdk", tag: "v0.1.0"}
+      path -> {:nest_gen2, path: path}
+    end
   end
 
   # Settings live here rather than in config/*.exs: on the Nest the app is

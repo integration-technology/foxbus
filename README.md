@@ -1,7 +1,17 @@
 # foxbus
 
-The reference app for [nest_gen2_sdk](https://github.com/integration-technology/nest_gen2_sdk):
+The example app for [nest_gen2](https://github.com/integration-technology/nest_gen2_sdk):
 a repurposed Nest Learning Thermostat (2nd gen) as a bus-arrival display.
+
+foxbus has its own [semantic versioning](https://semver.org/) and is kept as a
+GitHub app (not published to Hex) against a tagged SDK release, with a
+`NEST_GEN2_PATH` environment variable override for co-developing both repos at
+once — see `mix.exs`. Every release is a git tag (`v0.1.0`) with an entry in
+[CHANGELOG.md](CHANGELOG.md).
+
+| foxbus | nest_gen2 |
+|---|---|
+| 0.1.x | 0.1.x |
 
 Turning the dial moves between three screens, clockwise forwards and anticlockwise
 back, with Nest's own click. By default (see "Changing the route or stops" below
@@ -70,6 +80,17 @@ mix deps.get
 mix test
 MIX_ENV=prod mix compile
 ```
+
+## Deploy
+
+```sh
+../nest_gen2_sdk/platform/deploy_app.sh . [--no-test]
+```
+
+Runs the tests and a prod build, checks foxbus was built against the same
+`nest_gen2` version installed on the Nest (refusing on a mismatch), uploads
+foxbus and its other dependencies (never the SDK itself) to the device, and
+restarts it.
 
 ## Assets
 
