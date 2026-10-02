@@ -19,10 +19,13 @@ end
 
 defmodule Foxbus.Ports.DisruptionsSource do
   @moduledoc """
-  Inbound port: anything that can answer "is this line disrupted right now?"
+  Inbound port: anything that can answer "is any of these lines disrupted
+  right now?" Takes a list (not one line) so an adapter backed by a single
+  page fetch (like Carousel's) can answer for every watched line from one
+  request, rather than being called once per line.
   """
 
-  @callback disrupted?(line :: String.t()) :: {:ok, boolean} | {:error, term}
+  @callback disrupted?(lines :: [String.t()]) :: {:ok, boolean} | {:error, term}
 end
 
 defmodule Foxbus.Ports.DisruptionsSink do

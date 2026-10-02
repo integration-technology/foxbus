@@ -11,7 +11,7 @@ defmodule Foxbus.Config do
   local device config, not user input:
 
       [
-        disruptions_line: "104",
+        lines: ["104"],
         default_screen: :towards_uxbridge,
         stops: [
           {:towards_uxbridge, "040000001207", "To Uxbridge"},
@@ -22,13 +22,19 @@ defmodule Foxbus.Config do
   Any key it doesn't set, or the file not existing at all, falls back to
   mix.exs' compiled env. `default_screen` has no mix.exs fallback — it's
   `:splash` when unset, matching foxbus's original behaviour.
+
+  `lines` is a list, not a single line, on purpose: a stop can be served by
+  more than one route (Holtspur, for instance, sees 102, 103, 104 and 105
+  together), and `Foxbus.Arrivals` filters the scraped board down to just
+  these lines — listing several here shows all of them, interleaved by time,
+  rather than just the one route the board happens to mention first.
   """
 
   @spec stops() :: [{atom, String.t(), String.t()}]
   def stops, do: get(:stops)
 
-  @spec disruptions_line() :: String.t()
-  def disruptions_line, do: get(:disruptions_line)
+  @spec lines() :: [String.t()]
+  def lines, do: get(:lines)
 
   @spec default_screen() :: atom
   def default_screen, do: Keyword.get(overrides(), :default_screen, :splash)

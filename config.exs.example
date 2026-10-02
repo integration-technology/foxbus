@@ -6,13 +6,15 @@
 # kill -TERM 1) to pick up changes.
 #
 # Example below points at the Holtspur stops instead of 105's Coleshill ones,
-# for testing while 105 is out. Note: Holtspur is a shared stop (104, 105,
-# Flightline 102 and 103 all call there) — CarouselScrapeSource doesn't
-# filter the board by line, so expect to see other routes mixed in too.
+# for testing while 105 is out. Holtspur is a shared stop — 102, 103, 104 and
+# 105 all call there — so `lines` lists both routes we actually want shown;
+# Foxbus.Arrivals filters the scraped board down to just these, interleaved
+# by time, and drops 102/103 from the display entirely. A single-element
+# list (e.g. ["104"]) works the same way for one route.
 # Verified clear of any current closure notice as of writing this file.
 
 [
-  disruptions_line: "104",
+  lines: ["104", "105"],
   default_screen: :towards_uxbridge,
   stops: [
     {:towards_uxbridge, "040000001207", "To Uxbridge"},

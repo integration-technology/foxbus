@@ -30,7 +30,7 @@ defmodule Foxbus.MixProject do
         ],
         arrivals_source: Foxbus.Adapters.Sources.CarouselScrapeSource,
         arrivals_sink: Foxbus.Adapters.Sinks.ScreensSink,
-        disruptions_line: "105",
+        lines: ["105"],
         disruptions_source: Foxbus.Adapters.Sources.CarouselDisruptionsSource,
         disruptions_sink: Foxbus.Adapters.Sinks.ScreensSink,
         stop_closure_source: Foxbus.Adapters.Sources.CarouselStopClosureSource,
