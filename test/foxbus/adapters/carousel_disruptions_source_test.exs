@@ -21,29 +21,34 @@ defmodule Foxbus.Adapters.Sources.CarouselDisruptionsSourceTest do
     "<html><body><div class=\"disruptions-listing\">#{items}</div></body></html>"
   end
 
-  test "true when a notice tags the line" do
+  test "true when a notice tags one of the lines" do
     html = page([["Flightline 102"], ["105", "1A"]])
-    assert CarouselDisruptionsSource.parse_html(html, "105")
+    assert CarouselDisruptionsSource.parse_html(html, ["105"])
   end
 
-  test "false when no notice tags the line" do
+  test "true when a notice tags any line in a multi-line watch list" do
+    html = page([["32", "32A", "33"]])
+    assert CarouselDisruptionsSource.parse_html(html, ["104", "105", "32A"])
+  end
+
+  test "false when no notice tags any watched line" do
     html = page([["Flightline 102"], ["32", "32A", "33"]])
-    refute CarouselDisruptionsSource.parse_html(html, "105")
+    refute CarouselDisruptionsSource.parse_html(html, ["105"])
   end
 
   test "false with no notices at all" do
-    refute CarouselDisruptionsSource.parse_html("<html><body></body></html>", "105")
+    refute CarouselDisruptionsSource.parse_html("<html><body></body></html>", ["105"])
   end
 
   test "false on unexpected markup, not a crash" do
     refute CarouselDisruptionsSource.parse_html(
              "<html><body>Site under maintenance</body></html>",
-             "105"
+             ["105"]
            )
   end
 
   test "an exact match only, not a substring" do
     html = page([["1052"], ["1A"]])
-    refute CarouselDisruptionsSource.parse_html(html, "105")
+    refute CarouselDisruptionsSource.parse_html(html, ["105"])
   end
 end

@@ -1,7 +1,7 @@
 defmodule Foxbus.Adapters.Sources.CarouselDisruptionsSource do
   @moduledoc """
-  Whether a line has an active notice on Carousel's network-wide board,
-  e.g. https://www.carouselbuses.co.uk/service-updates.
+  Whether any of a list of lines has an active notice on Carousel's
+  network-wide board, e.g. https://www.carouselbuses.co.uk/service-updates.
 
   Each notice tags the routes it affects with an anchor like:
 
@@ -12,8 +12,9 @@ defmodule Foxbus.Adapters.Sources.CarouselDisruptionsSource do
 
   Caveats of scraping: some notices are long-running ("15th Jul 2025 onwards")
   rather than tied to today, so this answers "is there a listed notice for
-  this line", not strictly "is one active at this exact moment". A page
-  redesign makes the parse return false, which reads the same as "all clear".
+  any of these lines", not strictly "is one active at this exact moment". A
+  page redesign makes the parse return false, which reads the same as
+  "all clear".
   """
   @behaviour Foxbus.Ports.DisruptionsSource
 
@@ -22,21 +23,21 @@ defmodule Foxbus.Adapters.Sources.CarouselDisruptionsSource do
   @url "https://www.carouselbuses.co.uk/service-updates"
 
   @impl true
-  def disrupted?(line) do
+  def disrupted?(lines) do
     with {:ok, {_headers, body}} <- CarouselHttp.get(@url) do
-      {:ok, parse_html(body, line)}
+      {:ok, parse_html(body, lines)}
     end
   end
 
   @doc false
-  @spec parse_html(String.t(), String.t()) :: boolean
-  def parse_html(html, line) do
+  @spec parse_html(String.t(), [String.t()]) :: boolean
+  def parse_html(html, lines) do
     case Floki.parse_document(html) do
       {:ok, document} ->
         document
         |> Floki.find(".disruption-item [data-name]")
         |> Floki.attribute("data-name")
-        |> Enum.member?(line)
+        |> Enum.any?(&(&1 in lines))
 
       _ ->
         false
