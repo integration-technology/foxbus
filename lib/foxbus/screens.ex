@@ -10,7 +10,10 @@ defmodule Foxbus.Screens do
   bus at a stop nobody's looking at; turning the dial away stops the chirp,
   and turning back resumes it. It keeps chirping until either the dial is
   pressed to silence it (see `Foxbus.Screens.Layout.press/2`) or the bus has
-  gone (a different bus arrives next, or it drops off the board).
+  gone (a different bus arrives next, or it drops off the board). While
+  chirping, a `NestGen2.Power.keep_awake/1` hold keeps the screen lit instead
+  of repeatedly calling `Power.wake/0`; the hold is released the moment
+  chirping stops, for whichever reason.
 
   When Carousel names a stop's exact ATCO code as affected by a notice, its
   screen turns red with the direction and the notice's explanation in place of
@@ -70,7 +73,8 @@ defmodule Foxbus.Screens do
       background: background,
       icons: Application.app_dir(:foxbus, ["priv", "MaterialIcons-Regular.ttf"]),
       shown: nil,
-      chirping: nil
+      chirping: nil,
+      power_hold: nil
     }
 
     {:ok, render(state)}
@@ -138,9 +142,10 @@ defmodule Foxbus.Screens do
     {:noreply, update_chirp(state)}
   end
 
+  # The power_hold taken in update_chirp/1 keeps the screen lit for as long as
+  # this keeps rescheduling itself — no need to call Power.wake/0 here too.
   def handle_info(:chirp, %{chirping: stop} = state) when stop != nil do
     for {hz, ms, delay} <- @chirp, do: Process.send_after(self(), {:tone, hz, ms}, delay)
-    Power.wake()
     Process.send_after(self(), :chirp, @chirp_every_ms)
     {:noreply, state}
   end
@@ -189,13 +194,21 @@ defmodule Foxbus.Screens do
         state
 
       chirping == nil ->
-        %{state | chirping: nil}
+        release_power_hold(state)
+        %{state | chirping: nil, power_hold: nil}
 
       true ->
+        # Release any previous hold first — this also covers switching
+        # straight from one chirping stop to another, with no nil in between.
+        release_power_hold(state)
         send(self(), :chirp)
-        %{state | chirping: chirping}
+        {:ok, hold} = Power.keep_awake(:alarm)
+        %{state | chirping: chirping, power_hold: hold}
     end
   end
+
+  defp release_power_hold(%{power_hold: nil}), do: :ok
+  defp release_power_hold(%{power_hold: hold}), do: Power.release(hold)
 
   # A quick spin queues several steps; take them all in one redraw.
   defp pending_steps do
