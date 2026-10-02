@@ -27,8 +27,8 @@ defmodule Foxbus.Screens.Layout do
   alias Foxbus.Domain.Arrival
 
   @blue "#435FA6"
-  @orange "#E87A1E"
-  @green "#2E9E4F"
+  @orange "#A2551B"
+  @green "#206F37"
   @red "#C62828"
   @white "#FFFFFF"
   @dark "#1C1C1E"
@@ -40,6 +40,8 @@ defmodule Foxbus.Screens.Layout do
   @row_gap 40
   @clock_y 20
   @clock_size 20
+  @splash_clock_y 46
+  @splash_clock_size 48
   @bell_armed "\u{E7F7}"
   @bell_silenced "\u{E7F6}"
   @warning "\u{E002}"
@@ -99,9 +101,14 @@ defmodule Foxbus.Screens.Layout do
   @spec bus_key(Arrival.t()) :: {String.t(), String.t()}
   def bus_key(%Arrival{line: line, destination: destination}), do: {line, destination}
 
-  @doc "The splash: fox (already in the background) and the temperature."
+  @doc """
+  The splash: fox (already in the background) and the temperature — a dashed
+  placeholder before the first climate reading comes in, since that can take
+  a little while after boot.
+  """
   @spec splash(float | nil) :: list
-  def splash(nil), do: [{:background, :splash}]
+  def splash(nil),
+    do: [{:background, :splash}, {:text, 160, 240, "--°C", text_opts(36, @dim, @blue)}]
 
   def splash(temperature_c) do
     text = :erlang.float_to_binary(temperature_c * 1.0, decimals: 1) <> "°C"
@@ -225,14 +232,20 @@ defmodule Foxbus.Screens.Layout do
   end
 
   @doc """
-  Adds the time ("HH:MM", UK local) small at the top centre of a screen, on
-  that screen's background.
+  Adds the time ("HH:MM", UK local) to a screen, on that screen's background:
+  much larger on the splash — it's the one screen meant to be read from
+  across the room, like a desk clock — and small at the top centre elsewhere,
+  out of the way of the countdown.
   """
   @spec with_clock(list, NaiveDateTime.t() | Time.t()) :: list
+  def with_clock([{:background, :splash} | _] = ops, now) do
+    text = Calendar.strftime(now, "%H:%M")
+    ops ++ [{:text, 160, @splash_clock_y, text, text_opts(@splash_clock_size, @white, @blue)}]
+  end
+
   def with_clock([{:background, background} | _] = ops, now) do
     {text_bg, color} =
       case background do
-        :splash -> {@blue, @white}
         @dark -> {@dark, @dim}
         hex -> {hex, @white}
       end
