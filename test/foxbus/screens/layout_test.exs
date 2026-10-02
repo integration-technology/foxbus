@@ -3,8 +3,8 @@ defmodule Foxbus.Screens.LayoutTest do
   alias Foxbus.Screens.Layout
   alias Foxbus.Domain.Arrival
 
-  @orange "#E87A1E"
-  @green "#2E9E4F"
+  @orange "#A2551B"
+  @green "#206F37"
   @minute 60_000
 
   defp arrival(line, eta, status \\ :live, time \\ nil),
@@ -38,7 +38,10 @@ defmodule Foxbus.Screens.LayoutTest do
 
   test "splash shows the temperature to one decimal place" do
     assert texts(Layout.splash(21.66)) == ["21.7°C"]
-    assert Layout.splash(nil) == [{:background, :splash}]
+  end
+
+  test "splash shows a placeholder before the first climate reading" do
+    assert texts(Layout.splash(nil)) == ["--°C"]
   end
 
   describe "list (next bus more than 10 minutes away)" do
@@ -205,11 +208,16 @@ defmodule Foxbus.Screens.LayoutTest do
       assert opts[:background] == @orange
     end
 
-    test "on the splash and on the blank screen too" do
+    test "much bigger on the splash, readable from across the room" do
       assert {:text, _, _, "09:05", opts} = clock(Layout.splash(20.5))
       assert opts[:background] == "#435FA6"
+      assert opts[:size] == 48
+    end
+
+    test "small at the top on a stop screen, including the blank one" do
       assert {:text, _, _, "09:05", opts} = clock(Layout.stop("To Chesham", []))
       assert opts[:background] == "#1C1C1E"
+      assert opts[:size] == 20
     end
   end
 
