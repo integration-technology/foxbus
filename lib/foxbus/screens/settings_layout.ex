@@ -155,8 +155,11 @@ defmodule Foxbus.Screens.SettingsLayout do
         [ssid_op]
 
       glyphs ->
+        # No space between them: a device capture showed a tofu box there —
+        # the icon font has no space glyph. The glyphs' own padding gives
+        # enough visual separation without one.
         icon_op =
-          {:text, 280, y, Enum.join(glyphs, " "),
+          {:text, 280, y, Enum.join(glyphs),
            [font: :icons] ++ text_opts(18, color, @dark, :right)}
 
         [ssid_op, icon_op]
