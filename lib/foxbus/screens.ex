@@ -314,6 +314,20 @@ defmodule Foxbus.Screens do
 
   defp cancel_auto_advance(state) do
     Process.cancel_timer(state.auto_advance_timer)
+    # cancel_timer/1 only stops a timer that hasn't fired yet — if the 10 s
+    # deadline had already passed by the time this ran, its :auto_advance
+    # message is already in our mailbox and cancel_timer can't retract it.
+    # Left alone, it would still fire later (after this interaction), moving
+    # the screen out from under whatever the user just did. A device test
+    # hit exactly this: a dial turn back to the splash, then a press, ended
+    # up on a stop screen instead of settings, because the stale message
+    # jumped the index in between.
+    receive do
+      :auto_advance -> :ok
+    after
+      0 -> :ok
+    end
+
     %{state | auto_advance_timer: nil}
   end
 

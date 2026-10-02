@@ -126,7 +126,9 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
       ops = at_networks(networks) |> SettingsLayout.render()
       icon_ops = for {:text, _x, _y, text, opts} <- ops, opts[:font] == :icons, do: text
       assert length(icon_ops) == 1
-      assert icon_ops == ["\u{E897} \u{E5CA}"]
+      # No space between them: the icon font has no space glyph (a device
+      # capture showed it as a tofu box).
+      assert icon_ops == ["\u{E897}\u{E5CA}"]
     end
 
     test "an open, unsaved network shows no lock/tick glyphs at all" do
