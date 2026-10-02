@@ -12,13 +12,18 @@ defmodule Foxbus.Screens.Layout do
   A stop screen has three looks, set by its next bus:
 
     * more than 10 minutes away — the list of buses on dark grey (blank when
-      there are none left today)
+      there are none left today); if the ones shown go to more than one
+      destination — a shared stop watching several lines (see
+      `Foxbus.Config.lines/0`) — each row gets its own destination under it,
+      since the screen's one configured title can't speak for all of them
     * 10 minutes or less (`:soon`) — orange, the minutes as a large countdown
     * 5 minutes or less (`:arriving`) — green; the bell arms itself here (see
       `auto_arm/2`) and chirps until silenced or the bus has gone
 
-  Any of the three gets a small warning icon, below the countdown, when the
-  line has an active disruption notice.
+  Any of the three gets a short line of the notice's own title, below the
+  countdown, when the line has an active disruption notice — not just an
+  icon, since the dial is already taken by muting the alarm here, so this is
+  the only way to see what the issue actually is without navigating away.
 
   A fourth look, `closed/2`, replaces all of that: when Carousel's board
   names this exact stop as affected by a notice, there is no countdown to
@@ -38,13 +43,14 @@ defmodule Foxbus.Screens.Layout do
   @max_rows 4
   @row_y 96
   @row_gap 40
+  @multi_dest_max_rows 3
+  @multi_dest_row_gap 54
   @clock_y 20
   @clock_size 20
   @splash_clock_y 46
   @splash_clock_size 48
   @bell_armed "\u{E7F7}"
   @bell_silenced "\u{E7F6}"
-  @warning "\u{E002}"
 
   @type mode :: :list | {:soon, non_neg_integer} | {:arriving, non_neg_integer}
   @type bell :: :none | :armed | :silenced
@@ -118,27 +124,28 @@ defmodule Foxbus.Screens.Layout do
   @doc """
   A stop screen. `arrivals` is nil until the first fetch has come back;
   `elapsed_ms` is the time since that fetch; `bell` is the next bus's bell;
-  `disrupted?` shows a small warning icon below the countdown, on top of any mode.
+  `disruption` is the active notice's title (or nil), shown as a short line
+  below the countdown, on top of any mode.
   """
-  @spec stop(String.t(), [Arrival.t()] | nil, non_neg_integer, bell, boolean) :: list
-  def stop(title, arrivals, elapsed_ms \\ 0, bell \\ :none, disrupted? \\ false) do
+  @spec stop(String.t(), [Arrival.t()] | nil, non_neg_integer, bell, String.t() | nil) :: list
+  def stop(title, arrivals, elapsed_ms \\ 0, bell \\ :none, disruption \\ nil) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
         [
           blank(),
           {:text, 160, 54, title, text_opts(24, @white, @dark)},
           {:text, 160, 140, "No more buses today", text_opts(22, @dim, @dark)}
-        ] ++ warning_icon(disrupted?, @dark)
+        ] ++ warning_line(disruption, @dark)
 
       :list ->
         [blank(), {:text, 160, 54, title, text_opts(24, @white, @dark)} | body(arrivals)] ++
-          warning_icon(disrupted?, @dark)
+          warning_line(disruption, @dark)
 
       {:soon, m} ->
-        countdown(title, hd(arrivals), m, @orange, bell) ++ warning_icon(disrupted?, @orange)
+        countdown(title, hd(arrivals), m, @orange, bell) ++ warning_line(disruption, @orange)
 
       {:arriving, m} ->
-        countdown(title, hd(arrivals), m, @green, bell) ++ warning_icon(disrupted?, @green)
+        countdown(title, hd(arrivals), m, @green, bell) ++ warning_line(disruption, @green)
     end
   end
 
@@ -207,19 +214,39 @@ defmodule Foxbus.Screens.Layout do
     [{:text, 160, 232, glyph, [font: :icons] ++ text_opts(40, @white, color)}]
   end
 
-  defp warning_icon(false, _color), do: []
+  defp warning_line(nil, _color), do: []
 
-  # Centred below "min" (y=200) and the bell icon (y=232), at (160, 270) — 108 px
-  # from the screen's centre (160, 160), comfortably inside the 145 px safe
-  # circle even at this larger size, with a 38 px gap below the bell icon so
-  # the two don't collide when both show at once. Earlier tries: (24, 20) sat
-  # under the bezel (~195 px out); (110, 40) landed on top of the title text.
-  defp warning_icon(true, color),
-    do: [{:text, 160, 270, @warning, [font: :icons] ++ text_opts(36, @white, color)}]
+  # Same spot the icon used to sit: (160, 270), below "min" (y=200) and the
+  # bell icon (y=232), 108 px from centre — comfortably inside the 145 px
+  # safe circle. One line only, so a long title is truncated rather than
+  # wrapped (contrast closed/2, which has the whole screen to wrap into).
+  defp warning_line(explanation, color),
+    do: [{:text, 160, 270, truncate(explanation, 20), text_opts(18, @white, color)}]
+
+  @doc "Cuts text to at most `max_chars`, with an ellipsis if it was longer."
+  @spec truncate(String.t(), pos_integer) :: String.t()
+  def truncate(text, max_chars) do
+    if String.length(text) <= max_chars,
+      do: text,
+      else: String.slice(text, 0, max_chars - 1) <> "…"
+  end
 
   defp body(nil), do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, @dark)}]
 
   defp body(arrivals) do
+    if multi_destination?(arrivals),
+      do: body_with_destinations(arrivals),
+      else: body_rows(arrivals)
+  end
+
+  # True once more than one line is watched (see Foxbus.Config.lines/0) and
+  # they genuinely go different places — the stop's single configured title
+  # ("To Uxbridge") is then wrong for whichever ones don't terminate there, so
+  # each row needs its own destination instead of relying on the title.
+  defp multi_destination?(arrivals),
+    do: arrivals |> Enum.map(& &1.destination) |> Enum.uniq() |> length() > 1
+
+  defp body_rows(arrivals) do
     arrivals
     |> Enum.take(@max_rows)
     |> Enum.with_index()
@@ -228,6 +255,21 @@ defmodule Foxbus.Screens.Layout do
 
       {:text, 160, @row_y + i * @row_gap, "#{a.line}  #{Arrival.eta_text(a)}",
        text_opts(30, color, @dark)}
+    end)
+  end
+
+  defp body_with_destinations(arrivals) do
+    arrivals
+    |> Enum.take(@multi_dest_max_rows)
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {a, i} ->
+      color = if a.status == :live, do: @white, else: @dim
+      y = @row_y + i * @multi_dest_row_gap
+
+      [
+        {:text, 160, y, "#{a.line}  #{Arrival.eta_text(a)}", text_opts(26, color, @dark)},
+        {:text, 160, y + 24, truncate(a.destination, 24), text_opts(15, @dim, @dark)}
+      ]
     end)
   end
 

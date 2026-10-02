@@ -79,6 +79,42 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
+  describe "a shared stop with more than one destination" do
+    defp arrival_to(line, eta, destination),
+      do: %Arrival{line: line, destination: destination, eta_minutes: eta, status: :live}
+
+    test "shows each bus's own destination, not just the stop's single title" do
+      ops =
+        Layout.stop("To Uxbridge", [
+          arrival_to("104", 11, "Uxbridge"),
+          arrival_to("105", 18, "High Wycombe")
+        ])
+
+      assert texts(ops) == [
+               "To Uxbridge",
+               "104  11 min",
+               "Uxbridge",
+               "105  18 min",
+               "High Wycombe"
+             ]
+    end
+
+    test "unaffected when every bus shares one destination" do
+      ops =
+        Layout.stop("To Chesham", [
+          arrival_to("105", 14, "Chesham"),
+          arrival_to("1", 40, "Chesham")
+        ])
+
+      assert texts(ops) == ["To Chesham", "105  14 min", "1  40 min"]
+    end
+
+    test "shows at most three buses, each with two lines" do
+      buses = for m <- 11..16, do: arrival_to("104", m, "Dest #{m}")
+      assert length(texts(Layout.stop("To Uxbridge", buses))) == 1 + 3 * 2
+    end
+  end
+
   describe "mode/2 and the countdown" do
     test "list beyond 10 minutes, orange at 10 or less, green at 5 or less" do
       assert Layout.mode([arrival("105", 11)], 0) == :list
@@ -165,33 +201,52 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
-  describe "the disruption warning icon" do
-    defp warning_glyphs(ops),
-      do: for({:text, _, _, t, opts} <- ops, opts[:font] == :icons, do: t)
+  describe "the disruption warning line" do
+    defp arrivals_by_mode,
+      do: [[], nil, [arrival("105", 14)], [arrival("105", 8)], [arrival("105", 3)]]
 
     test "absent by default, in every mode" do
-      assert warning_glyphs(Layout.stop("To Chesham", [])) == []
-      assert warning_glyphs(Layout.stop("To Chesham", nil)) == []
-      assert warning_glyphs(Layout.stop("To Chesham", [arrival("105", 14)])) == []
-      assert warning_glyphs(Layout.stop("To Chesham", [arrival("105", 8)])) == []
-      assert warning_glyphs(Layout.stop("To Chesham", [arrival("105", 3)])) == []
+      for arrivals <- arrivals_by_mode() do
+        ops = Layout.stop("To Chesham", arrivals)
+        refute "105 Disruption" in texts(ops)
+      end
     end
 
-    test "shown when disrupted, in every mode" do
-      warning = fn arrivals ->
-        warning_glyphs(Layout.stop("To Chesham", arrivals, 0, :none, true))
-      end
+    test "shows the notice's own title as one extra line, in every mode" do
+      for arrivals <- arrivals_by_mode() do
+        without = Layout.stop("To Chesham", arrivals)
+        with_it = Layout.stop("To Chesham", arrivals, 0, :none, "105 Disruption")
 
-      assert length(warning.([])) == 1
-      assert length(warning.(nil)) == 1
-      assert length(warning.([arrival("105", 14)])) == 1
-      assert length(warning.([arrival("105", 8)])) == 1
-      assert length(warning.([arrival("105", 3)])) == 1
+        assert length(texts(with_it)) == length(texts(without)) + 1
+        assert List.last(texts(with_it)) == "105 Disruption"
+      end
+    end
+
+    test "a long title is truncated to fit the one line available" do
+      long = "Roycroft Stops, Clewer Hill Road Windsor Suspended 24HRS"
+      ops = Layout.stop("To Chesham", [arrival("105", 3)], 0, :none, long)
+      assert List.last(texts(ops)) == "Roycroft Stops, Cle…"
     end
 
     test "does not replace the bell icon on the countdown screen" do
-      ops = Layout.stop("To Chesham", [arrival("105", 3)], 0, :armed, true)
-      assert length(warning_glyphs(ops)) == 2
+      ops = Layout.stop("To Chesham", [arrival("105", 3)], 0, :armed, "105 Disruption")
+      bell_icons = for {:text, _, _, t, opts} <- ops, opts[:font] == :icons, do: t
+      assert bell_icons == ["\u{E7F7}"]
+      assert List.last(texts(ops)) == "105 Disruption"
+    end
+  end
+
+  describe "truncate/2" do
+    test "leaves short text alone" do
+      assert Layout.truncate("No buses today.", 20) == "No buses today."
+    end
+
+    test "cuts longer text with an ellipsis" do
+      assert Layout.truncate("Service 105 Disruption", 10) == "Service 1…"
+    end
+
+    test "exactly at the limit is left alone" do
+      assert Layout.truncate("1234567890", 10) == "1234567890"
     end
   end
 

@@ -20,21 +20,22 @@ end
 defmodule Foxbus.Ports.DisruptionsSource do
   @moduledoc """
   Inbound port: anything that can answer "is any of these lines disrupted
-  right now?" Takes a list (not one line) so an adapter backed by a single
-  page fetch (like Carousel's) can answer for every watched line from one
-  request, rather than being called once per line.
+  right now, and if so what does the notice say?" Takes a list (not one
+  line) so an adapter backed by a single page fetch (like Carousel's) can
+  answer for every watched line from one request, rather than being called
+  once per line.
   """
 
-  @callback disrupted?(lines :: [String.t()]) :: {:ok, boolean} | {:error, term}
+  @callback disrupted?(lines :: [String.t()]) :: {:ok, String.t() | nil} | {:error, term}
 end
 
 defmodule Foxbus.Ports.DisruptionsSink do
   @moduledoc """
-  Outbound port: anything that shows a line's disruption status — the Nest's
-  screens here.
+  Outbound port: anything that shows a line's disruption status (or clears
+  it) — the Nest's screens here.
   """
 
-  @callback publish(disrupted? :: boolean) :: :ok | {:error, term}
+  @callback publish(explanation :: String.t() | nil) :: :ok | {:error, term}
 end
 
 defmodule Foxbus.Ports.StopClosureSource do
