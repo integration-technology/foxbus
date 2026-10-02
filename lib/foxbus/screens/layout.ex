@@ -138,8 +138,16 @@ defmodule Foxbus.Screens.Layout do
         ] ++ warning_line(disruption, @dark)
 
       :list ->
-        [blank(), {:text, 160, 54, title, text_opts(24, @white, @dark)} | body(arrivals)] ++
-          warning_line(disruption, @dark)
+        # The configured title ("To Uxbridge") names one direction; when the
+        # shown buses go to more than one place (a shared stop watching
+        # several lines), it would contradict half of them, so it's dropped
+        # rather than shown alongside destinations that disagree with it.
+        title_line =
+          if multi_destination?(arrivals),
+            do: [],
+            else: [{:text, 160, 54, title, text_opts(24, @white, @dark)}]
+
+        [blank() | title_line] ++ body(arrivals) ++ warning_line(disruption, @dark)
 
       {:soon, m} ->
         countdown(title, hd(arrivals), m, @orange, bell) ++ warning_line(disruption, @orange)
@@ -216,12 +224,15 @@ defmodule Foxbus.Screens.Layout do
 
   defp warning_line(nil, _color), do: []
 
-  # Same spot the icon used to sit: (160, 270), below "min" (y=200) and the
-  # bell icon (y=232), 108 px from centre — comfortably inside the 145 px
-  # safe circle. One line only, so a long title is truncated rather than
-  # wrapped (contrast closed/2, which has the whole screen to wrap into).
+  # (160, 264): below "min" (y=200) and the bell icon (y=232). A real device
+  # capture showed the previous (160, 270) + 20 chars running to ~147 px from
+  # centre — just outside the 145 px safe circle, with letters starting to
+  # hide under the bezel — so this is narrower (16 chars) and nudged up 6 px,
+  # while keeping a 32 px gap below the bell icon so the two don't collide.
+  # One line only, so a long title is truncated rather than wrapped (contrast
+  # closed/2, which has the whole screen to wrap into).
   defp warning_line(explanation, color),
-    do: [{:text, 160, 270, truncate(explanation, 20), text_opts(18, @white, color)}]
+    do: [{:text, 160, 264, truncate(explanation, 16), text_opts(18, @white, color)}]
 
   @doc "Cuts text to at most `max_chars`, with an ellipsis if it was longer."
   @spec truncate(String.t(), pos_integer) :: String.t()
@@ -243,6 +254,8 @@ defmodule Foxbus.Screens.Layout do
   # they genuinely go different places — the stop's single configured title
   # ("To Uxbridge") is then wrong for whichever ones don't terminate there, so
   # each row needs its own destination instead of relying on the title.
+  defp multi_destination?(nil), do: false
+
   defp multi_destination?(arrivals),
     do: arrivals |> Enum.map(& &1.destination) |> Enum.uniq() |> length() > 1
 

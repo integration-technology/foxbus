@@ -83,15 +83,16 @@ defmodule Foxbus.Screens.LayoutTest do
     defp arrival_to(line, eta, destination),
       do: %Arrival{line: line, destination: destination, eta_minutes: eta, status: :live}
 
-    test "shows each bus's own destination, not just the stop's single title" do
+    test "shows each bus's own destination instead of the stop's single title" do
       ops =
         Layout.stop("To Uxbridge", [
           arrival_to("104", 11, "Uxbridge"),
           arrival_to("105", 18, "High Wycombe")
         ])
 
+      # The title is dropped, not just supplemented: "To Uxbridge" would
+      # contradict the second row, which goes to High Wycombe.
       assert texts(ops) == [
-               "To Uxbridge",
                "104  11 min",
                "Uxbridge",
                "105  18 min",
@@ -109,9 +110,9 @@ defmodule Foxbus.Screens.LayoutTest do
       assert texts(ops) == ["To Chesham", "105  14 min", "1  40 min"]
     end
 
-    test "shows at most three buses, each with two lines" do
+    test "shows at most three buses, each with two lines, and no contradicting title" do
       buses = for m <- 11..16, do: arrival_to("104", m, "Dest #{m}")
-      assert length(texts(Layout.stop("To Uxbridge", buses))) == 1 + 3 * 2
+      assert length(texts(Layout.stop("To Uxbridge", buses))) == 3 * 2
     end
   end
 
@@ -225,7 +226,7 @@ defmodule Foxbus.Screens.LayoutTest do
     test "a long title is truncated to fit the one line available" do
       long = "Roycroft Stops, Clewer Hill Road Windsor Suspended 24HRS"
       ops = Layout.stop("To Chesham", [arrival("105", 3)], 0, :none, long)
-      assert List.last(texts(ops)) == "Roycroft Stops, Cle…"
+      assert List.last(texts(ops)) == "Roycroft Stops,…"
     end
 
     test "does not replace the bell icon on the countdown screen" do
