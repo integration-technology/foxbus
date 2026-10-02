@@ -57,3 +57,33 @@ defmodule Foxbus.Ports.StopClosureSink do
 
   @callback publish_closure(stop :: atom, explanation :: String.t() | nil) :: :ok | {:error, term}
 end
+
+defmodule Foxbus.Ports.WifiSource do
+  @moduledoc """
+  Inbound port: Wi-Fi status, scanning, and connecting. Backed by
+  `NestGen2.Wifi` (nest_gen2 >= 0.2.0) in production, or a fake for
+  developing and testing the settings screens without it.
+
+  `scan/0` and `connect/2` are expected to block for several seconds to tens
+  of seconds — callers (see `Foxbus.Screens.Settings`) must run them in a
+  `Task`, never directly from `Foxbus.Screens`' `handle_*`, or the whole
+  display freezes until they return.
+  """
+
+  @type status :: %{
+          state: :connected | :connecting | :disconnected | :unavailable,
+          ssid: String.t() | nil,
+          ip: String.t() | nil,
+          signal_dbm: integer | nil
+        }
+
+  @type network :: %{ssid: String.t(), signal_dbm: integer, secured: boolean, saved: boolean}
+
+  @callback status() :: status
+  @callback scan() :: {:ok, [network]} | {:error, term}
+  @callback connect(ssid :: String.t(), password :: String.t() | nil) ::
+              {:ok, %{ssid: String.t(), ip: String.t()}}
+              | {:error, :wrong_password | :not_found | :no_ip | :timeout | term}
+  @callback saved_networks() :: [String.t()]
+  @callback forget(ssid :: String.t()) :: :ok | {:error, :not_found | :connected}
+end

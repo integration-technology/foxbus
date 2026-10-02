@@ -28,17 +28,36 @@ defmodule Foxbus.Screens do
 
   Arrivals, the line's disruption status, and a stop's closure, all arrive
   through `Foxbus.Adapters.Sinks.ScreensSink`.
+
+  Pressing the dial on the splash opens settings (`Foxbus.Screens.Settings`,
+  rendered by `Foxbus.Screens.SettingsLayout`) — Wi-Fi status, versions, and
+  changing network. While open: a `Power.keep_awake(:settings)` hold keeps
+  the screen lit, the dial turns and presses route to `Settings.navigate/2`
+  and `Settings.select/1` instead of the normal screens, the password wheel
+  gets a finer dial step, and ~60 s idle returns to the splash. Scanning and
+  connecting run in a `Task` — both can take tens of seconds, and nothing
+  here must block the display that long.
+
+  Deliberate trade-off: the arrival alarm is fully suppressed while settings
+  is open (the underlying screen index is frozen on `:splash`, which never
+  chirps), rather than interrupting a Wi-Fi flow to show a stop screen. A bus
+  going imminent mid-settings is silent until settings is left.
   """
   use GenServer
   alias NestGen2.{Display, Image, Piezo, Power}
   alias Foxbus.LondonTime
-  alias Foxbus.Screens.Layout
+  alias Foxbus.Screens.{Layout, Settings, SettingsLayout}
 
   @tick_ms 10_000
   @auto_advance_ms 10_000
   @chirp_every_ms 3_000
   # Two quick rising tones: {frequency Hz, length ms, delay ms from the start}.
   @chirp [{2600, 70, 0}, {3300, 90, 130}]
+  @settings_idle_ms 60_000
+  @settings_result_ms 5_000
+  # Finer than the normal screen_step_degrees, for picking one of ~26+
+  # characters on the password wheel rather than switching between 2-3 screens.
+  @password_step_degrees 15
 
   def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -81,7 +100,12 @@ defmodule Foxbus.Screens do
       shown: nil,
       chirping: nil,
       power_hold: nil,
-      auto_advance_timer: auto_advance_timer
+      auto_advance_timer: auto_advance_timer,
+      settings: nil,
+      settings_power_hold: nil,
+      settings_idle_timer: nil,
+      settings_result_timer: nil,
+      settings_task_ref: nil
     }
 
     {:ok, render(state)}
@@ -114,33 +138,84 @@ defmodule Foxbus.Screens do
   end
 
   @impl true
-  def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, state) do
+  def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, %{settings: nil} = state) do
     steps = step(direction) + pending_steps()
     state = cancel_auto_advance(state)
     state = %{state | index: Layout.navigate(state.index, length(state.screens), steps)}
     {:noreply, state |> render() |> update_chirp()}
   end
 
-  def handle_info({:nest_gen2, :climate, %{temperature_c: t}}, state) do
-    state = %{state | temperature: t}
-    {:noreply, if(current(state) == :splash, do: render(state), else: state)}
+  def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, state) do
+    total = step(direction) + pending_steps()
+    dir = if total >= 0, do: :cw, else: :ccw
+    old_screen = state.settings.screen
+
+    new_settings =
+      Enum.reduce(1..abs(total)//1, state.settings, fn _, s -> Settings.navigate(s, dir) end)
+
+    adjust_dial_step(old_screen, new_settings.screen)
+    state = %{state | settings: new_settings} |> reset_settings_idle_timer()
+    {:noreply, render(state)}
   end
 
-  def handle_info({:nest_gen2, :button, :down}, state) do
+  def handle_info({:nest_gen2, :climate, %{temperature_c: t}}, state) do
+    state = %{state | temperature: t}
+
+    {:noreply,
+     if(current(state) == :splash and state.settings == nil, do: render(state), else: state)}
+  end
+
+  def handle_info({:nest_gen2, :button, :down}, %{settings: nil} = state) do
     state = cancel_auto_advance(state)
     stop = current(state)
 
-    case next_bus(state, stop) do
-      nil ->
-        {:noreply, state}
+    if stop == :splash do
+      {:noreply, state |> open_settings() |> render()}
+    else
+      case next_bus(state, stop) do
+        nil ->
+          {:noreply, state}
 
-      bus ->
-        chirping? = Layout.chirping?(mode(state, stop), bell(state, stop))
-        new_bell = Layout.press(bell(state, stop), chirping?)
-        state = put_in(state.bells[stop], {Layout.bus_key(bus), new_bell})
-        {:noreply, state |> render() |> update_chirp()}
+        bus ->
+          chirping? = Layout.chirping?(mode(state, stop), bell(state, stop))
+          new_bell = Layout.press(bell(state, stop), chirping?)
+          state = put_in(state.bells[stop], {Layout.bus_key(bus), new_bell})
+          {:noreply, state |> render() |> update_chirp()}
+      end
     end
   end
+
+  def handle_info({:nest_gen2, :button, :down}, state) do
+    old_screen = state.settings.screen
+    {new_settings, effect} = Settings.select(state.settings)
+    adjust_dial_step(old_screen, new_settings.screen)
+    state = %{state | settings: new_settings} |> reset_settings_idle_timer()
+    handle_settings_effect(effect, state)
+  end
+
+  # A scan or connect Task finished normally.
+  def handle_info({ref, result}, %{settings_task_ref: ref} = state) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, apply_task_result(state, result)}
+  end
+
+  # A scan or connect Task crashed outright, rather than returning {:error, _}.
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{settings_task_ref: ref} = state)
+      when reason != :normal do
+    {:noreply, apply_task_result(state, {:error, reason})}
+  end
+
+  def handle_info(:settings_idle_timeout, %{settings: nil} = state), do: {:noreply, state}
+
+  def handle_info(:settings_idle_timeout, state),
+    do: {:noreply, state |> close_settings() |> render()}
+
+  def handle_info(:settings_result_timeout, %{settings: %{screen: :result} = s} = state),
+    do:
+      {:noreply,
+       %{state | settings: %{s | screen: :menu}, settings_result_timer: nil} |> render()}
+
+  def handle_info(:settings_result_timeout, state), do: {:noreply, state}
 
   # For testing: moves off the splash onto the first stop after a few seconds
   # of nobody touching the dial or button, so a restart doesn't need a manual
@@ -149,8 +224,8 @@ defmodule Foxbus.Screens do
   def handle_info(:auto_advance, state) do
     state = %{state | auto_advance_timer: nil}
 
-    case {state.index, Enum.at(state.screens, 1)} do
-      {0, stop} when stop != nil ->
+    case {state.settings, state.index, Enum.at(state.screens, 1)} do
+      {nil, 0, stop} when stop != nil ->
         {:noreply, %{state | index: 1} |> render() |> update_chirp()}
 
       _ ->
@@ -242,6 +317,96 @@ defmodule Foxbus.Screens do
     %{state | auto_advance_timer: nil}
   end
 
+  defp open_settings(state) do
+    status = wifi_source().status()
+    versions = %{foxbus: foxbus_version(), sdk: sdk_version()}
+    {:ok, hold} = Power.keep_awake(:settings)
+
+    %{state | settings: Settings.open(status, versions), settings_power_hold: hold}
+    |> reset_settings_idle_timer()
+  end
+
+  defp close_settings(state) do
+    if state.settings_power_hold, do: Power.release(state.settings_power_hold)
+    if state.settings_idle_timer, do: Process.cancel_timer(state.settings_idle_timer)
+    if state.settings_result_timer, do: Process.cancel_timer(state.settings_result_timer)
+    # Defensive: :back only ever reaches here from :menu, never :password, so
+    # the dial step should already be restored — but cheap to make sure.
+    adjust_dial_step(:password, :menu)
+
+    %{
+      state
+      | settings: nil,
+        settings_power_hold: nil,
+        settings_idle_timer: nil,
+        settings_result_timer: nil,
+        settings_task_ref: nil
+    }
+  end
+
+  defp reset_settings_idle_timer(state) do
+    if state.settings_idle_timer, do: Process.cancel_timer(state.settings_idle_timer)
+    timer = Process.send_after(self(), :settings_idle_timeout, @settings_idle_ms)
+    %{state | settings_idle_timer: timer}
+  end
+
+  # The password wheel needs a finer dial step than the 2-3 highlightable
+  # items on every other settings screen, since it's picking one of 26+
+  # characters rather than switching screens.
+  defp adjust_dial_step(screen, screen), do: :ok
+  defp adjust_dial_step(:password, _new), do: NestGen2.Dial.set_step(screen_step_degrees())
+  defp adjust_dial_step(_old, :password), do: NestGen2.Dial.set_step(@password_step_degrees)
+  defp adjust_dial_step(_old, _new), do: :ok
+
+  defp screen_step_degrees, do: Application.fetch_env!(:foxbus, :screen_step_degrees)
+
+  defp handle_settings_effect(nil, state), do: {:noreply, render(state)}
+
+  defp handle_settings_effect(:exit_to_splash, state),
+    do: {:noreply, state |> close_settings() |> render()}
+
+  defp handle_settings_effect(:scan, state) do
+    %Task{ref: ref} = Task.async(fn -> wifi_source().scan() end)
+    {:noreply, %{state | settings_task_ref: ref} |> render()}
+  end
+
+  defp handle_settings_effect({:connect, ssid, password}, state) do
+    %Task{ref: ref} = Task.async(fn -> wifi_source().connect(ssid, password) end)
+    {:noreply, %{state | settings_task_ref: ref} |> render()}
+  end
+
+  defp apply_task_result(state, result) do
+    new_settings =
+      case state.settings.screen do
+        :scanning -> Settings.scan_result(state.settings, result)
+        :connecting -> Settings.connect_result(state.settings, result)
+      end
+
+    %{state | settings: new_settings, settings_task_ref: nil}
+    |> maybe_start_result_timer(new_settings)
+    |> render()
+  end
+
+  defp maybe_start_result_timer(state, %{screen: :result, connect_result: {:ok, _}}) do
+    timer = Process.send_after(self(), :settings_result_timeout, @settings_result_ms)
+    %{state | settings_result_timer: timer}
+  end
+
+  defp maybe_start_result_timer(state, _settings), do: state
+
+  defp wifi_source, do: Application.fetch_env!(:foxbus, :wifi_source)
+
+  defp foxbus_version, do: Application.spec(:foxbus, :vsn) |> to_string()
+
+  # NestGen2.version/0 is new in nest_gen2 0.2.0; this rescues against
+  # running settings against an older SDK during the transition, rather than
+  # crashing the whole settings screen over a version string.
+  defp sdk_version do
+    NestGen2.version()
+  rescue
+    _ -> "?"
+  end
+
   # A quick spin queues several steps; take them all in one redraw.
   defp pending_steps do
     receive do
@@ -291,6 +456,10 @@ defmodule Foxbus.Screens do
     end
   end
 
+  defp signature(%{settings: settings}) when settings != nil do
+    {:settings, settings, Calendar.strftime(LondonTime.now(), "%H:%M")}
+  end
+
   defp signature(state) do
     minute = Calendar.strftime(LondonTime.now(), "%H:%M")
 
@@ -308,6 +477,16 @@ defmodule Foxbus.Screens do
   defp schedule_tick do
     to_minute = 60_000 - rem(System.os_time(:millisecond), 60_000) + 50
     Process.send_after(self(), :tick, min(@tick_ms, to_minute))
+  end
+
+  defp render(%{settings: settings} = state) when settings != nil do
+    settings
+    |> SettingsLayout.render()
+    |> Layout.with_clock(LondonTime.now())
+    |> Enum.each(&draw(&1, state))
+
+    Display.present()
+    %{state | shown: signature(state)}
   end
 
   defp render(state) do
@@ -345,6 +524,8 @@ defmodule Foxbus.Screens do
 
   defp draw({:background, :splash}, state), do: Display.set_background(state.background)
   defp draw({:background, color}, _state), do: Display.set_background(color)
+
+  defp draw({:rect, x, y, w, h, color}, _state), do: Display.fill_rect(x, y, w, h, color)
 
   defp draw({:text, x, y, text, opts}, state) do
     opts = if opts[:font] == :icons, do: Keyword.put(opts, :font, state.icons), else: opts
