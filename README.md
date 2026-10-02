@@ -8,8 +8,13 @@ back, with Nest's own click. By default (see "Changing the route or stops" below
 for overriding this):
 
 1. **Splash** — the fox on the blue disc and the room temperature.
-2. **To Chesham** — the next buses at Carousel stop `040000002201`.
-3. **To High Wycombe** — the next buses at Carousel stop `040000002202`.
+2. **To Uxbridge** — the next 104s and 105s at Carousel stop `040000001207`.
+3. **To High Wycombe** — the next 104s and 105s at Carousel stop `040000001208`.
+
+This is currently Holtspur rather than the project's usual Coleshill stops
+(`040000002201`/`040000002202`) — Coleshill is closed by a Carousel notice
+until Tuesday, so the default is pointed at Holtspur meanwhile. Revert
+`mix.exs`'s `stops`/`lines` once 105 is back to normal there.
 
 A stop screen says "Checking times" until its first stop-closure check has
 come back — this happens on every boot — rather than risk showing a

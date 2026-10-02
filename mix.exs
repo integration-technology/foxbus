@@ -24,13 +24,20 @@ defmodule Foxbus.MixProject do
       extra_applications: [:logger, :inets, :ssl],
       mod: {Foxbus.Application, []},
       env: [
+        # TEMPORARY: Coleshill (040000002201/2) is closed by a Carousel notice
+        # until Tuesday (see the live "Service 105 Disruption" affecting these
+        # exact stops) — pointed at Holtspur instead meanwhile, a stop pair
+        # verified clear of any current closure notice. Revert to Coleshill
+        # once 105 is back to normal.
         stops: [
-          {:chesham, "040000002201", "To Chesham"},
-          {:high_wycombe, "040000002202", "To High Wycombe"}
+          {:towards_uxbridge, "040000001207", "To Uxbridge"},
+          {:towards_wycombe, "040000001208", "To High Wycombe"}
         ],
         arrivals_source: Foxbus.Adapters.Sources.CarouselScrapeSource,
         arrivals_sink: Foxbus.Adapters.Sinks.ScreensSink,
-        lines: ["105"],
+        # Holtspur is shared with 102/103 too; watching both 104 and 105 shows
+        # them interleaved and filters the other two off the board.
+        lines: ["104", "105"],
         disruptions_source: Foxbus.Adapters.Sources.CarouselDisruptionsSource,
         disruptions_sink: Foxbus.Adapters.Sinks.ScreensSink,
         stop_closure_source: Foxbus.Adapters.Sources.CarouselStopClosureSource,
