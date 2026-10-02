@@ -4,10 +4,10 @@ The example app for [nest_gen2](https://github.com/integration-technology/nest_g
 a repurposed Nest Learning Thermostat (2nd gen) as a bus-arrival display.
 
 foxbus has its own [semantic versioning](https://semver.org/) and is kept as a
-GitHub app (not published to Hex) against a tagged SDK release, with a
-`NEST_GEN2_PATH` environment variable override for co-developing both repos at
-once — see `mix.exs`. Every release is a git tag (`v0.1.0`) with an entry in
-[CHANGELOG.md](CHANGELOG.md).
+GitHub app (not published to Hex) against [nest_gen2 on Hex](https://hex.pm/packages/nest_gen2),
+with a `NEST_GEN2_PATH` environment variable override for co-developing both
+repos at once — see `mix.exs`. Every release is a git tag (`v0.1.0`) with an
+entry in [CHANGELOG.md](CHANGELOG.md).
 
 | foxbus | nest_gen2 |
 |---|---|
