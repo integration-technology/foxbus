@@ -1,3 +1,4 @@
 %{
   "floki": {:hex, :floki, "0.38.4", "10f98971e892aed2c2f1b3a0f928e488e3797e1c6dd3dfd98db40b14e9a78bcf", [:mix], [], "hexpm", "bdb34645eee8e79845c7edaca2d4099a52804ee4d4a3ecc683a69451f0244973"},
+  "nest_gen2": {:git, "https://github.com/integration-technology/nest_gen2_sdk.git", "fbc916dc9df44f14df8e4bdb8a01807eb4b3463a", [tag: "v0.1.0"]},
 }
