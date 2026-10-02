@@ -1,0 +1,21 @@
+# Runtime override for foxbus's route and stops — see Foxbus.Config.
+#
+# Copy this file to config.exs next to the other device assets
+# (mix.exs' :assets_dir, normally /media/scratch/.nest_gen2_sdk/foxbus/) and
+# edit it there. No rebuild needed: restart the app (app_watchdog.sh or
+# kill -TERM 1) to pick up changes.
+#
+# Example below points at the Holtspur stops instead of 105's Coleshill ones,
+# for testing while 105 is out. Note: Holtspur is a shared stop (104, 105,
+# Flightline 102 and 103 all call there) — CarouselScrapeSource doesn't
+# filter the board by line, so expect to see other routes mixed in too.
+# Verified clear of any current closure notice as of writing this file.
+
+[
+  disruptions_line: "104",
+  default_screen: :towards_uxbridge,
+  stops: [
+    {:towards_uxbridge, "040000001207", "To Uxbridge"},
+    {:towards_wycombe, "040000001208", "To High Wycombe"}
+  ]
+]

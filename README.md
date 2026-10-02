@@ -4,11 +4,16 @@ The reference app for [nest_gen2_sdk](https://github.com/integration-technology/
 a repurposed Nest Learning Thermostat (2nd gen) as a bus-arrival display.
 
 Turning the dial moves between three screens, clockwise forwards and anticlockwise
-back, with Nest's own click:
+back, with Nest's own click. By default (see "Changing the route or stops" below
+for overriding this):
 
 1. **Splash** — the fox on the blue disc and the room temperature.
 2. **To Chesham** — the next buses at Carousel stop `040000002201`.
 3. **To High Wycombe** — the next buses at Carousel stop `040000002202`.
+
+A stop screen says "Checking times" until its first stop-closure check has
+come back — this happens on every boot — rather than risk showing a
+scheduled, non-arriving bus time before knowing whether the stop is closed.
 
 A bus shows its line and when it's due: a countdown at 10 minutes or less
 ("4 min"), otherwise the clock time ("at 15:22", or "Tomorrow 06:25" once the
@@ -38,6 +43,17 @@ curl.se, MPL-2.0), since the Nest has no general certificate store.
 
 Settings (the stops, adapters, dial step) are in `mix.exs` under `env`, because on
 the Nest the app starts from plain `erl`, which never reads `config/*.exs`.
+
+## Changing the route or stops without a rebuild
+
+The line, the two stops, and which one shows by default can be overridden at
+runtime by `Foxbus.Config`, which reads a plain `.exs` file on disk — by
+default `config.exs` next to the other device assets (`assets_dir`, normally
+`/media/scratch/.nest_gen2_sdk/foxbus/`). Copy `config.exs.example` there,
+edit it, and restart the app (`app_watchdog.sh` or `kill -TERM 1`) — no
+recompile or redeploy needed. A missing file, or a key it doesn't set, falls
+back to mix.exs' compiled `env`; a malformed file is ignored rather than
+stopping the app from booting.
 
 ## Build and test
 
