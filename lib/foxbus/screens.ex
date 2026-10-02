@@ -45,8 +45,8 @@ defmodule Foxbus.Screens do
   @spec show_arrivals(atom, list) :: :ok
   def show_arrivals(stop, arrivals), do: GenServer.cast(__MODULE__, {:arrivals, stop, arrivals})
 
-  @spec show_disruption(boolean) :: :ok
-  def show_disruption(disrupted?), do: GenServer.cast(__MODULE__, {:disruption, disrupted?})
+  @spec show_disruption(String.t() | nil) :: :ok
+  def show_disruption(explanation), do: GenServer.cast(__MODULE__, {:disruption, explanation})
 
   @spec show_closure(atom, String.t() | nil) :: :ok
   def show_closure(stop, explanation),
@@ -73,7 +73,7 @@ defmodule Foxbus.Screens do
       arrivals: %{},
       fetched_at: %{},
       bells: %{},
-      disrupted: false,
+      disruption: nil,
       closures: %{},
       temperature: nil,
       background: background,
@@ -100,8 +100,8 @@ defmodule Foxbus.Screens do
     {:noreply, update_chirp(state)}
   end
 
-  def handle_cast({:disruption, disrupted?}, state) do
-    state = %{state | disrupted: disrupted?}
+  def handle_cast({:disruption, explanation}, state) do
+    state = %{state | disruption: explanation}
     state = if current(state) != :splash, do: render(state), else: state
     {:noreply, state}
   end
@@ -300,7 +300,7 @@ defmodule Foxbus.Screens do
 
       stop ->
         {stop, mode(state, stop), bell(state, stop), Map.get(state.arrivals, stop),
-         state.disrupted, closure_status(state, stop), minute}
+         state.disruption, closure_status(state, stop), minute}
     end
   end
 
@@ -330,7 +330,7 @@ defmodule Foxbus.Screens do
                 Map.get(state.arrivals, stop),
                 elapsed(state, stop),
                 bell(state, stop),
-                state.disrupted
+                state.disruption
               )
 
             {:ok, explanation} ->

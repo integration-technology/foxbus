@@ -11,7 +11,7 @@ defmodule Foxbus.Adapters.Sinks.ScreensSink do
   def publish(stop, arrivals), do: Foxbus.Screens.show_arrivals(stop, arrivals)
 
   @impl Foxbus.Ports.DisruptionsSink
-  def publish(disrupted?), do: Foxbus.Screens.show_disruption(disrupted?)
+  def publish(explanation), do: Foxbus.Screens.show_disruption(explanation)
 
   @impl Foxbus.Ports.StopClosureSink
   def publish_closure(stop, explanation), do: Foxbus.Screens.show_closure(stop, explanation)
