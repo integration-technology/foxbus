@@ -4,7 +4,7 @@ defmodule Foxbus.MixProject do
   def project do
     [
       app: :foxbus,
-      version: "0.1.0",
+      version: "0.1.1",
       # The Nest runs Elixir 1.17 on OTP 26: build with that toolchain
       # (source nest_gen2_sdk/platform/host_env.sh).
       elixir: "~> 1.17",
@@ -17,13 +17,13 @@ defmodule Foxbus.MixProject do
     ]
   end
 
-  # The SDK as the tagged GitHub release, or a local path for co-development
-  # (set NEST_GEN2_PATH when working on both repos at once). Once nest_gen2 is
-  # on Hex: {:nest_gen2, "~> 0.1.0"} — the trailing .0 matters, since "~> 0.1"
-  # alone would also allow a breaking 0.2 before 1.0.
+  # The SDK from Hex, or a local path for co-development (set NEST_GEN2_PATH
+  # when working on both repos at once). "~> 0.1.0", not "~> 0.1" — the
+  # trailing .0 matters, since "~> 0.1" alone would also allow a breaking 0.2
+  # before 1.0.
   defp nest_gen2_dep do
     case System.get_env("NEST_GEN2_PATH") do
-      nil -> {:nest_gen2, github: "integration-technology/nest_gen2_sdk", tag: "v0.1.0"}
+      nil -> {:nest_gen2, "~> 0.1.0"}
       path -> {:nest_gen2, path: path}
     end
   end

@@ -6,6 +6,11 @@ while the version is 0.x, a minor release (0.1 → 0.2) may change behaviour.
 Depends on [`nest_gen2`](https://github.com/integration-technology/nest_gen2_sdk);
 foxbus 0.1.x targets nest_gen2 0.1.x.
 
+## 0.1.1 (2026-10-02)
+
+- Dependency only: `nest_gen2` now comes from [Hex](https://hex.pm/packages/nest_gen2)
+  (`~> 0.1.0`) instead of a GitHub tag. Same SDK code (0.1.0); no behaviour change.
+
 ## 0.1.0 (2026-10-02)
 
 First release.
