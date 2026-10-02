@@ -14,7 +14,10 @@ defmodule Foxbus.Screens do
 
   When Carousel names a stop's exact ATCO code as affected by a notice, its
   screen turns red with the direction and the notice's explanation in place of
-  any countdown — there are no buses to show a time for.
+  any countdown — there are no buses to show a time for. Until that first
+  closure check has come back — notably, right after boot — a stop screen
+  says "Checking times" rather than risk showing a scheduled, non-arriving
+  bus time ahead of knowing the stop might be closed.
 
   Arrivals, the line's disruption status, and a stop's closure, all arrive
   through `Foxbus.Adapters.Sinks.ScreensSink`.
@@ -43,7 +46,7 @@ defmodule Foxbus.Screens do
 
   @impl true
   def init(nil) do
-    stops = Application.fetch_env!(:foxbus, :stops)
+    stops = Foxbus.Config.stops()
     dir = Application.fetch_env!(:foxbus, :assets_dir)
     background = Image.from_raw(320, 320, File.read!(Path.join(dir, "screen.raw")))
 
@@ -51,10 +54,13 @@ defmodule Foxbus.Screens do
     NestGen2.subscribe([:dial_step, :climate, :button])
     schedule_tick()
 
+    screens = [:splash | Enum.map(stops, &elem(&1, 0))]
+    default_index = Enum.find_index(screens, &(&1 == Foxbus.Config.default_screen())) || 0
+
     state = %{
-      screens: [:splash | Enum.map(stops, &elem(&1, 0))],
+      screens: screens,
       titles: Map.new(stops, fn {key, _id, title} -> {key, title} end),
-      index: 0,
+      index: default_index,
       arrivals: %{},
       fetched_at: %{},
       bells: %{},
@@ -224,14 +230,20 @@ defmodule Foxbus.Screens do
   end
 
   defp elapsed(state, stop), do: now() - Map.get(state.fetched_at, stop, now())
-  defp closed?(state, stop), do: Map.get(state.closures, stop) != nil
 
-  # A closed stop never counts as arriving/soon: there's no real bus behind a
-  # stale scrape, so nothing should auto-arm or chirp for it.
+  # :error means no closure check has landed yet for this stop — distinct from
+  # {:ok, nil}, which means one has and the stop is open. Map.get/2 alone
+  # can't tell those apart, since both read back as nil.
+  defp closure_status(state, stop), do: Map.fetch(state.closures, stop)
+
+  # A closed (or not-yet-known) stop never counts as arriving/soon: there's no
+  # real bus behind a stale scrape, or none confirmed yet, so nothing should
+  # auto-arm or chirp for it.
   defp mode(state, stop) do
-    if closed?(state, stop),
-      do: :list,
-      else: Layout.mode(Map.get(state.arrivals, stop), elapsed(state, stop))
+    case closure_status(state, stop) do
+      {:ok, nil} -> Layout.mode(Map.get(state.arrivals, stop), elapsed(state, stop))
+      _ -> :list
+    end
   end
 
   defp signature(state) do
@@ -243,7 +255,7 @@ defmodule Foxbus.Screens do
 
       stop ->
         {stop, mode(state, stop), bell(state, stop), Map.get(state.arrivals, stop),
-         state.disrupted, Map.get(state.closures, stop), minute}
+         state.disrupted, closure_status(state, stop), minute}
     end
   end
 
@@ -260,8 +272,14 @@ defmodule Foxbus.Screens do
           Layout.splash(state.temperature)
 
         stop ->
-          case Map.get(state.closures, stop) do
-            nil ->
+          case closure_status(state, stop) do
+            # No closure check has landed yet: show "Checking times" rather
+            # than risk a scheduled, non-arriving bus time ahead of knowing
+            # whether this stop is actually closed.
+            :error ->
+              Layout.stop(state.titles[stop], nil)
+
+            {:ok, nil} ->
               Layout.stop(
                 state.titles[stop],
                 Map.get(state.arrivals, stop),
@@ -270,7 +288,7 @@ defmodule Foxbus.Screens do
                 state.disrupted
               )
 
-            explanation ->
+            {:ok, explanation} ->
               Layout.closed(state.titles[stop], explanation)
           end
       end
