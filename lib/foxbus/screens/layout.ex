@@ -61,7 +61,7 @@ defmodule Foxbus.Screens.Layout do
 
   @type mode :: :list | {:soon, non_neg_integer} | {:arriving, non_neg_integer}
   @type bell :: :none | :armed | :silenced
-  @type bus_key :: {String.t(), String.t(), {0..23, 0..59} | nil}
+  @type bus_key :: {String.t(), String.t(), Time.t() | nil}
   @type selection :: %{index: non_neg_integer, armed: [bus_key]} | nil
 
   def blue, do: @blue
@@ -102,48 +102,68 @@ defmodule Foxbus.Screens.Layout do
   def chirping?({:arriving, _}, :armed), do: true
   def chirping?(_mode, _bell), do: false
 
-  # Wide enough that a live bus's self-computed scheduled_time (see below)
-  # ticking by about a minute on an ordinary poll stays in the same bucket;
-  # narrow enough that two genuinely different departures — normally tens of
-  # minutes apart — still land in different ones. A service with a shorter
-  # headway than this would still collide; there's nothing else about a
-  # specific trip available from the scrape to tell them apart by.
-  @bus_key_bucket_minutes 5
+  @doc """
+  Identifies one specific departure, as reported by the most recent fetch —
+  not a stable cross-fetch identity by itself. Line and destination alone
+  aren't enough: a shared stop's list can show the same route to the same
+  place more than once (an earlier and a later departure), and this is what
+  tells those two apart at the moment this is called.
+
+  It is NOT safe to compare two bus_key/1 values from different fetches for
+  equality, though — scheduled_time isn't stable for a live bus.
+  `Foxbus.Adapters.Sources.CarouselScrapeSource` computes it fresh each poll
+  as now + the reported eta, which converges on the bus's true arrival
+  minute but normally shifts by about a minute every time that eta itself
+  ticks down, not just when the bus is genuinely running late. Matching one
+  fetch's bus_key against an earlier one's needs tolerance for that drift —
+  see `Foxbus.Screens`' tolerant re-matching, which is what actually tracks
+  an armed or due bus from poll to poll; this is just the identity snapshot
+  it starts from and compares against.
+  """
+  @spec bus_key(Arrival.t()) :: {String.t(), String.t(), Time.t() | nil}
+  def bus_key(%Arrival{line: line, destination: destination, scheduled_time: scheduled_time}),
+    do: {line, destination, scheduled_time}
+
+  # See bus_key/1's drift warning: a scheduled_time comparison needs enough
+  # slack to absorb normal eta-ticking, while still keeping two genuinely
+  # different departures distinct — those are normally tens of minutes
+  # apart, not a handful.
+  @rebind_tolerance_minutes 3
 
   @doc """
-  Identifies one specific departure across fetches, so a bell follows the bus
-  it was set for. Line and destination alone aren't enough — a shared stop's
-  list can show the same route to the same place more than once (an earlier
-  and a later departure), and keying on just those would arm or track every
-  one of them together instead of the one actually selected.
+  Finds whichever of `arrivals` is most likely the same physical departure
+  as `key` (an earlier bus_key/1), tolerating the drift bus_key/1 warns
+  about — or nil if none is close enough to count. Matches by line and
+  destination, then by whichever scheduled_time is closest to `key`'s own,
+  within #{@rebind_tolerance_minutes} minutes; a tie goes to whichever
+  comes first in `arrivals` (lowest eta, since callers pass an
+  eta-sorted list).
 
-  scheduled_time tells two same-route departures apart, but isn't exactly
-  stable for a live bus: `Foxbus.Adapters.Sources.CarouselScrapeSource`
-  computes it fresh each poll as now + the reported eta, which converges on
-  the bus's true arrival minute but normally ticks by about a minute every
-  time that eta itself ticks down — not just when the bus is genuinely
-  running late. Keyed on the exact minute, the bus_key would change on an
-  ordinary poll and silently drop the alarm. Rounded to the nearest
-  #{@bus_key_bucket_minutes} minutes instead, for enough slack to absorb
-  that normal drift.
+  Returns the match's own, fresh bus_key/1 — not `key` itself — so a
+  caller tracking a bus across fetches (`Foxbus.Screens`, for both the
+  alarm and the stale-due check) can update its stored reference to the
+  bus's current estimate each time, rather than comparing every future
+  fetch back against the original arm time and accumulating drift.
   """
-  @spec bus_key(Arrival.t()) :: {String.t(), String.t(), {0..23, 0..59} | nil}
-  def bus_key(%Arrival{line: line, destination: destination, scheduled_time: nil}),
-    do: {line, destination, nil}
-
-  def bus_key(%Arrival{line: line, destination: destination, scheduled_time: scheduled_time}),
-    do: {line, destination, bucket_time(scheduled_time)}
-
-  defp bucket_time(%Time{hour: hour, minute: minute}) do
-    total = hour * 60 + minute
-
-    rounded =
-      total |> Kernel./(@bus_key_bucket_minutes) |> round() |> Kernel.*(@bus_key_bucket_minutes)
-
-    minutes_in_day = 24 * 60
-    rounded = Integer.mod(rounded, minutes_in_day)
-    {div(rounded, 60), rem(rounded, 60)}
+  @spec rebind([Arrival.t()], bus_key) :: bus_key | nil
+  def rebind(arrivals, {line, destination, time}) do
+    arrivals
+    |> Enum.filter(&(&1.line == line and &1.destination == destination))
+    |> Enum.filter(&times_close?(&1.scheduled_time, time))
+    |> Enum.min_by(&time_distance(&1.scheduled_time, time), fn -> nil end)
+    |> case do
+      nil -> nil
+      bus -> bus_key(bus)
+    end
   end
+
+  defp times_close?(nil, nil), do: true
+  defp times_close?(nil, _time), do: false
+  defp times_close?(_time, nil), do: false
+  defp times_close?(t1, t2), do: time_distance(t1, t2) <= @rebind_tolerance_minutes
+
+  defp time_distance(nil, nil), do: 0
+  defp time_distance(t1, t2), do: abs(Time.diff(t1, t2, :minute))
 
   @doc """
   The splash: fox (already in the background) and the temperature — a dashed
