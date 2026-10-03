@@ -4,6 +4,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
   @status %{state: :connected, ssid: "HomeWifi", ip: "192.168.1.42", signal_dbm: -52}
   @versions %{foxbus: "0.1.1", sdk: "0.2.0"}
+  @screen_power %{idle_timeout_ms: 30_000, wake_on_approach?: true}
 
   defp texts(ops), do: for({:text, _x, _y, text, _opts} <- ops, do: text)
   defp background([{:background, bg} | _]), do: bg
@@ -19,7 +20,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
   describe "menu" do
     test "shows the SSID, IP, and both versions" do
-      ops = SettingsLayout.render(Settings.open(@status, @versions))
+      ops = SettingsLayout.render(Settings.open(@status, @versions, @screen_power))
       assert "HomeWifi" in texts(ops)
       assert "192.168.1.42" in texts(ops)
       assert Enum.any?(texts(ops), &(&1 =~ "0.1.1" and &1 =~ "0.2.0"))
@@ -28,32 +29,34 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
     test "shows placeholders when not connected" do
       status = %{state: :disconnected, ssid: nil, ip: nil, signal_dbm: nil}
-      ops = SettingsLayout.render(Settings.open(status, @versions))
+      ops = SettingsLayout.render(Settings.open(status, @versions, @screen_power))
       assert "Not connected" in texts(ops)
       assert "—" in texts(ops)
     end
 
-    test "highlighted menu item is marked, the other isn't" do
-      ops = SettingsLayout.render(Settings.open(@status, @versions))
+    test "highlighted menu item is marked, the others aren't" do
+      ops = SettingsLayout.render(Settings.open(@status, @versions, @screen_power))
       assert "› Change Wi-Fi" in texts(ops)
+      assert "Screen" in texts(ops)
       assert "Back" in texts(ops)
+      refute "› Screen" in texts(ops)
       refute "› Back" in texts(ops)
     end
 
     test "renders four signal bars, all colours present" do
-      ops = SettingsLayout.render(Settings.open(@status, @versions))
+      ops = SettingsLayout.render(Settings.open(@status, @versions, @screen_power))
       bars = for {:rect, _x, _y, _w, _h, color} <- ops, do: color
       assert length(bars) == 4
     end
 
     test "no bars drawn when signal is unknown" do
       status = %{@status | signal_dbm: nil}
-      ops = SettingsLayout.render(Settings.open(status, @versions))
+      ops = SettingsLayout.render(Settings.open(status, @versions, @screen_power))
       assert Enum.count(ops, &match?({:rect, _, _, _, _, _}, &1)) == 0
     end
 
     test "the signal bars don't overlap the IP text" do
-      ops = SettingsLayout.render(Settings.open(@status, @versions))
+      ops = SettingsLayout.render(Settings.open(@status, @versions, @screen_power))
 
       {:text, _x, ip_y, "192.168.1.42", ip_opts} =
         Enum.find(ops, &match?({:text, _, _, "192.168.1.42", _}, &1))
@@ -64,16 +67,47 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
     end
   end
 
+  describe "screen_power" do
+    defp at_screen_power(screen_power \\ @screen_power) do
+      Settings.open(@status, @versions, screen_power) |> Map.put(:screen, :screen_power)
+    end
+
+    test "shows the current idle timeout and wake-on-approach choice" do
+      ops = at_screen_power() |> SettingsLayout.render()
+      assert Enum.any?(texts(ops), &(&1 =~ "30 s"))
+      assert Enum.any?(texts(ops), &(&1 =~ "On"))
+    end
+
+    test "shows Always on and Off for the other end of each choice" do
+      screen_power = %{idle_timeout_ms: :infinity, wake_on_approach?: false}
+      ops = at_screen_power(screen_power) |> SettingsLayout.render()
+      assert Enum.any?(texts(ops), &(&1 =~ "Always on"))
+      assert Enum.any?(texts(ops), &(&1 =~ "Off"))
+    end
+
+    test "highlighted row is marked, the others aren't" do
+      ops = at_screen_power() |> SettingsLayout.render()
+      assert Enum.any?(texts(ops), &String.starts_with?(&1, "› Screen:"))
+      refute Enum.any?(texts(ops), &String.starts_with?(&1, "› Wake on approach:"))
+      refute "› Back" in texts(ops)
+    end
+
+    test "Back is always shown" do
+      ops = at_screen_power() |> SettingsLayout.render()
+      assert "Back" in texts(ops)
+    end
+  end
+
   describe "scanning" do
     test "shows a scanning message" do
-      s = %{Settings.open(@status, @versions) | screen: :scanning}
+      s = %{Settings.open(@status, @versions, @screen_power) | screen: :scanning}
       assert "Scanning…" in texts(SettingsLayout.render(s))
     end
   end
 
   describe "networks" do
     defp at_networks(networks, highlight \\ 0) do
-      Settings.open(@status, @versions)
+      Settings.open(@status, @versions, @screen_power)
       |> Map.put(:screen, :networks)
       |> Map.put(:networks, networks)
       |> Map.put(:highlight, highlight)
@@ -147,7 +181,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
   describe "password wheel" do
     defp at_password(wheel_index, wheel_group \\ :upper, password \\ "") do
-      Settings.open(@status, @versions)
+      Settings.open(@status, @versions, @screen_power)
       |> Map.put(:screen, :password)
       |> Map.put(:selected_network, network("Neighbour5G"))
       |> Map.put(:wheel_index, wheel_index)
@@ -183,7 +217,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
   describe "connecting" do
     test "shows a connecting message" do
-      s = %{Settings.open(@status, @versions) | screen: :connecting}
+      s = %{Settings.open(@status, @versions, @screen_power) | screen: :connecting}
       assert "Connecting…" in texts(SettingsLayout.render(s))
     end
   end
@@ -191,7 +225,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
   describe "result" do
     test "success shows the new SSID and IP, green background" do
       s =
-        Settings.open(@status, @versions)
+        Settings.open(@status, @versions, @screen_power)
         |> Map.put(:screen, :result)
         |> Map.put(:connect_result, {:ok, %{ssid: "Neighbour5G", ip: "192.168.1.99"}})
 
@@ -203,7 +237,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
     test "wrong password failure names the specific reason" do
       s =
-        Settings.open(@status, @versions)
+        Settings.open(@status, @versions, @screen_power)
         |> Map.put(:screen, :result)
         |> Map.put(:connect_result, {:error, :wrong_password})
 
@@ -214,7 +248,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
     test "another failure names the previous network it fell back to" do
       s =
-        Settings.open(@status, @versions)
+        Settings.open(@status, @versions, @screen_power)
         |> Map.put(:screen, :result)
         |> Map.put(:connect_result, {:error, :timeout})
 
@@ -224,7 +258,7 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
 
     test "Retry and Back are both shown, one highlighted" do
       s =
-        Settings.open(@status, @versions)
+        Settings.open(@status, @versions, @screen_power)
         |> Map.put(:screen, :result)
         |> Map.put(:connect_result, {:error, :timeout})
 

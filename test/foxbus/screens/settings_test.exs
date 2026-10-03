@@ -4,8 +4,9 @@ defmodule Foxbus.Screens.SettingsTest do
 
   @status %{state: :connected, ssid: "HomeWifi", ip: "192.168.1.42", signal_dbm: -52}
   @versions %{foxbus: "0.1.1", sdk: "0.2.0"}
+  @screen_power %{idle_timeout_ms: 30_000, wake_on_approach?: true}
 
-  defp open, do: Settings.open(@status, @versions)
+  defp open, do: Settings.open(@status, @versions, @screen_power)
 
   defp network(ssid, opts \\ []) do
     %{
@@ -35,24 +36,100 @@ defmodule Foxbus.Screens.SettingsTest do
   end
 
   describe "menu navigation and selection" do
-    test "turning wraps between the two items" do
+    test "turning wraps between the three items" do
       s = open()
       assert s.highlight == 0
       s = Settings.navigate(s, :cw)
       assert s.highlight == 1
       s = Settings.navigate(s, :cw)
+      assert s.highlight == 2
+      s = Settings.navigate(s, :cw)
       assert s.highlight == 0
       s = Settings.navigate(s, :ccw)
-      assert s.highlight == 1
+      assert s.highlight == 2
     end
 
     test "selecting Change Wi-Fi (highlight 0) moves to scanning and asks the caller to scan" do
       assert {%{screen: :scanning}, :scan} = Settings.select(open())
     end
 
-    test "selecting Back (highlight 1) asks the caller to exit to the splash" do
+    test "selecting Screen (highlight 1) moves to the screen-power screen" do
       s = open() |> Settings.navigate(:cw)
+      assert {%{screen: :screen_power, highlight: 0}, nil} = Settings.select(s)
+    end
+
+    test "selecting Back (highlight 2) asks the caller to exit to the splash" do
+      s = open() |> Settings.navigate(:cw) |> Settings.navigate(:cw)
       assert {_s, :exit_to_splash} = Settings.select(s)
+    end
+  end
+
+  describe "screen-power screen" do
+    defp at_screen_power do
+      open() |> Map.put(:screen, :screen_power)
+    end
+
+    test "opens carrying the current idle timeout and wake-on-approach choice" do
+      screen_power = %{idle_timeout_ms: 300_000, wake_on_approach?: false}
+      s = Settings.open(@status, @versions, screen_power)
+      assert s.idle_timeout_ms == 300_000
+      assert s.wake_on_approach? == false
+    end
+
+    test "turning moves between the three rows and wraps" do
+      s = at_screen_power()
+      assert s.highlight == 0
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 1
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 2
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 0
+      s = Settings.navigate(s, :ccw)
+      assert s.highlight == 2
+    end
+
+    test "selecting the Screen row cycles 30 s -> 1 min -> 5 min -> Always on -> 30 s" do
+      s = at_screen_power()
+      assert s.idle_timeout_ms == 30_000
+
+      {s, {:screen_power, choice}} = Settings.select(s)
+      assert s.idle_timeout_ms == 60_000
+      assert choice == %{idle_timeout_ms: 60_000, wake_on_approach?: true}
+
+      {s, {:screen_power, _}} = Settings.select(s)
+      assert s.idle_timeout_ms == 300_000
+
+      {s, {:screen_power, _}} = Settings.select(s)
+      assert s.idle_timeout_ms == :infinity
+
+      {s, {:screen_power, _}} = Settings.select(s)
+      assert s.idle_timeout_ms == 30_000
+    end
+
+    test "selecting the Wake on approach row (highlight 1) toggles it" do
+      s = %{at_screen_power() | highlight: 1}
+      assert s.wake_on_approach? == true
+
+      {s, {:screen_power, choice}} = Settings.select(s)
+      assert s.wake_on_approach? == false
+      assert choice == %{idle_timeout_ms: 30_000, wake_on_approach?: false}
+
+      {s, {:screen_power, choice}} = Settings.select(s)
+      assert s.wake_on_approach? == true
+      assert choice == %{idle_timeout_ms: 30_000, wake_on_approach?: true}
+    end
+
+    test "selecting Back (highlight 2) returns to the menu, no effect" do
+      s = %{at_screen_power() | highlight: 2}
+      assert {%{screen: :menu, highlight: 1}, nil} = Settings.select(s)
+    end
+
+    test "idle_timeout_label/1 shows seconds, minutes, or Always on" do
+      assert Settings.idle_timeout_label(30_000) == "30 s"
+      assert Settings.idle_timeout_label(60_000) == "1 min"
+      assert Settings.idle_timeout_label(300_000) == "5 min"
+      assert Settings.idle_timeout_label(:infinity) == "Always on"
     end
   end
 

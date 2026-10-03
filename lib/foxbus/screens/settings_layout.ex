@@ -43,6 +43,7 @@ defmodule Foxbus.Screens.SettingsLayout do
   def render(%Settings{screen: :password} = s), do: password(s)
   def render(%Settings{screen: :connecting}), do: connecting()
   def render(%Settings{screen: :result} = s), do: result(s)
+  def render(%Settings{screen: :screen_power} = s), do: screen_power(s)
 
   defp menu(s) do
     ssid_line = s.wifi_status.ssid || "Not connected"
@@ -58,9 +59,30 @@ defmodule Foxbus.Screens.SettingsLayout do
       [
         {:text, 160, 182, versions_text(s.versions), text_opts(13, @dim)},
         menu_item("Change Wi-Fi", 205, s.highlight == 0),
-        menu_item("Back", 235, s.highlight == 1)
+        menu_item("Screen", 235, s.highlight == 1),
+        menu_item("Back", 265, s.highlight == 2)
       ]
   end
+
+  # Two rows (Screen, Wake on approach), each cycled in place by a press —
+  # see Foxbus.Screens.Settings' :screen_power screen — then Back, same
+  # position/style convention as the main menu's own three items.
+  defp screen_power(s) do
+    [
+      {:background, @dark},
+      {:text, 160, 50, "Settings", text_opts(22, @white)},
+      menu_item(
+        "Screen: " <> Settings.idle_timeout_label(s.idle_timeout_ms),
+        150,
+        s.highlight == 0
+      ),
+      menu_item("Wake on approach: " <> on_off(s.wake_on_approach?), 185, s.highlight == 1),
+      menu_item("Back", 220, s.highlight == 2)
+    ]
+  end
+
+  defp on_off(true), do: "On"
+  defp on_off(false), do: "Off"
 
   defp menu_item(label, y, true), do: {:text, 160, y, "› " <> label, text_opts(20, @white)}
   defp menu_item(label, y, false), do: {:text, 160, y, label, text_opts(20, @dim)}
