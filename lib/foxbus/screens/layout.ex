@@ -118,10 +118,23 @@ defmodule Foxbus.Screens.Layout do
   A stop screen. `arrivals` is nil until the first fetch has come back;
   `elapsed_ms` is the time since that fetch; `bell` is the next bus's bell;
   `disruption` is the active notice's title (or nil), shown as a short line
-  below the countdown, on top of any mode.
+  below the countdown, on top of any mode; `uncertain?` marks a bus that's
+  read as due (0 min) for a while without actually arriving — Carousel's
+  board doesn't always drop a departed bus promptly, so this could mean it's
+  held up rather than gone (see `Foxbus.Screens`, which tracks how long and
+  eventually drops it from the list entirely rather than leave it
+  `uncertain?` forever).
   """
-  @spec stop(String.t(), [Arrival.t()] | nil, non_neg_integer, bell, String.t() | nil) :: list
-  def stop(title, arrivals, elapsed_ms \\ 0, bell \\ :none, disruption \\ nil) do
+  @spec stop(String.t(), [Arrival.t()] | nil, non_neg_integer, bell, String.t() | nil, boolean) ::
+          list
+  def stop(
+        title,
+        arrivals,
+        elapsed_ms \\ 0,
+        bell \\ :none,
+        disruption \\ nil,
+        uncertain? \\ false
+      ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
         [
@@ -143,10 +156,12 @@ defmodule Foxbus.Screens.Layout do
         [blank() | title_line] ++ body(arrivals) ++ warning_line(disruption, @dark)
 
       {:soon, m} ->
-        countdown(title, hd(arrivals), m, @orange, bell) ++ warning_line(disruption, @orange)
+        countdown(title, hd(arrivals), m, @orange, bell, false) ++
+          warning_line(disruption, @orange)
 
       {:arriving, m} ->
-        countdown(title, hd(arrivals), m, @green, bell) ++ warning_line(disruption, @green)
+        countdown(title, hd(arrivals), m, @green, bell, uncertain?) ++
+          warning_line(disruption, @green)
     end
   end
 
@@ -197,12 +212,15 @@ defmodule Foxbus.Screens.Layout do
     |> Enum.reverse()
   end
 
-  defp countdown(title, bus, minutes, color, bell) do
+  defp countdown(title, bus, minutes, color, bell, uncertain?) do
+    minutes_text = if uncertain?, do: "#{minutes}?", else: Integer.to_string(minutes)
+    minutes_color = if uncertain?, do: @dim, else: @white
+
     [
       {:background, color},
       {:text, 160, 48, title, text_opts(22, @white, color)},
       {:text, 160, 76, bus.line, text_opts(26, @white, color)},
-      {:text, 160, 102, Integer.to_string(minutes), text_opts(96, @white, color)},
+      {:text, 160, 102, minutes_text, text_opts(96, minutes_color, color)},
       {:text, 160, 200, "min", text_opts(26, @white, color)}
       | bell_icon(bell, color)
     ]

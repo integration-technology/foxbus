@@ -144,6 +144,26 @@ defmodule Foxbus.Screens.LayoutTest do
     test "the green screen at 5 minutes or less" do
       assert background(Layout.stop("To Chesham", [arrival("105", 3)])) == @green
     end
+
+    test "a due bus shows a plain minutes number by default" do
+      ops = Layout.stop("To Chesham", [arrival("105", 0)])
+      assert "0" in texts(ops)
+      refute "0?" in texts(ops)
+    end
+
+    test "uncertain? marks a due bus with a dimmer, question-marked minutes" do
+      ops = Layout.stop("To Chesham", [arrival("105", 0)], 0, :none, nil, true)
+      assert "0?" in texts(ops)
+
+      {:text, _, _, "0?", opts} = Enum.find(ops, &match?({:text, _, _, "0?", _}, &1))
+      assert opts[:color] != "#FFFFFF"
+    end
+
+    test "uncertain? has no effect outside the arriving (green) look" do
+      ops = Layout.stop("To Chesham", [arrival("105", 8)], 0, :none, nil, true)
+      assert "8" in texts(ops)
+      refute "8?" in texts(ops)
+    end
   end
 
   describe "the bell" do

@@ -30,10 +30,12 @@ defmodule Foxbus.Screens do
   through `Foxbus.Adapters.Sinks.ScreensSink`.
 
   Carousel's board doesn't always drop a bus the moment it actually departs —
-  its live ETA can stay reported as "due" (0 min) for a while after. Rather
-  than leave the screen stuck green on a bus that's already gone, once the
-  next bus has read as due for more than `@stale_due_ms`, it's treated as
-  gone and the one behind it (if any) takes its place.
+  its live ETA can stay reported as "due" (0 min) for a while after, and
+  that can equally mean the bus is genuinely still coming (held up at the
+  previous stop) rather than gone. So a bus due for more than
+  `@due_grace_ms` is shown dimmer with a "?" rather than silently treated as
+  on time; past `@stale_due_ms` it's treated as gone and the one behind it
+  (if any) takes its place.
 
   Pressing the dial on the splash opens settings (`Foxbus.Screens.Settings`,
   rendered by `Foxbus.Screens.SettingsLayout`) — Wi-Fi status, versions, and
@@ -62,8 +64,9 @@ defmodule Foxbus.Screens do
   @chirp [{2600, 70, 0}, {3300, 90, 130}]
   @settings_idle_ms 60_000
   @settings_result_ms 5_000
-  # How long the next bus can read as due (0 min) before it's treated as
-  # gone rather than still shown — see the moduledoc.
+  # How long the next bus can read as due (0 min) before it's shown as
+  # uncertain, and before it's dropped as gone — see the moduledoc.
+  @due_grace_ms 90_000
   @stale_due_ms 3 * 60_000
   # Finer than the normal screen_step_degrees, for picking one of ~26+
   # characters on the password wheel rather than switching between 2-3 screens.
@@ -447,20 +450,39 @@ defmodule Foxbus.Screens do
 
   defp track_due(due_since, stop, _arrivals), do: Map.delete(due_since, stop)
 
+  # How long the current (fetched, not yet dropped) next bus has read as due,
+  # or nil if it isn't the one due_since is tracking — e.g. a fresh fetch
+  # moved a different bus to the front.
+  defp due_elapsed_ms(state, stop) do
+    with [bus | _] <- Map.get(state.arrivals, stop),
+         {key, first_seen} <- Map.get(state.due_since, stop),
+         true <- Layout.bus_key(bus) == key do
+      now() - first_seen
+    else
+      _ -> nil
+    end
+  end
+
+  # Shown dimmer with a "?" rather than plain "0 min" once due for longer
+  # than @due_grace_ms — it could just as well still be coming (held up at
+  # the previous stop) as actually gone, and effective_arrivals/2 hasn't
+  # dropped it yet at this point.
+  defp uncertain?(state, stop) do
+    case due_elapsed_ms(state, stop) do
+      ms when is_integer(ms) -> ms > @due_grace_ms
+      nil -> false
+    end
+  end
+
   # The fetched arrivals, minus a leading bus that's read as due for longer
   # than @stale_due_ms — Carousel's board doesn't always drop a departed bus
   # promptly, and showing it forever as "0 min" looks like foxbus has frozen.
   defp effective_arrivals(state, stop) do
     arrivals = Map.get(state.arrivals, stop)
 
-    case {arrivals, Map.get(state.due_since, stop)} do
-      {[bus | rest], {key, first_seen}} ->
-        if Layout.bus_key(bus) == key and now() - first_seen > @stale_due_ms,
-          do: rest,
-          else: arrivals
-
-      _ ->
-        arrivals
+    case due_elapsed_ms(state, stop) do
+      ms when is_integer(ms) and ms > @stale_due_ms -> tl(arrivals)
+      _ -> arrivals
     end
   end
 
@@ -507,7 +529,7 @@ defmodule Foxbus.Screens do
 
       stop ->
         {stop, mode(state, stop), bell(state, stop), effective_arrivals(state, stop),
-         disruption(state, stop), closure_status(state, stop), minute}
+         disruption(state, stop), closure_status(state, stop), uncertain?(state, stop), minute}
     end
   end
 
@@ -547,7 +569,8 @@ defmodule Foxbus.Screens do
                 effective_arrivals(state, stop),
                 elapsed(state, stop),
                 bell(state, stop),
-                disruption(state, stop)
+                disruption(state, stop),
+                uncertain?(state, stop)
               )
 
             {:ok, explanation} ->
