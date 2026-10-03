@@ -50,6 +50,18 @@ defmodule Foxbus.Screens do
   is open (the underlying screen index is frozen on `:splash`, which never
   chirps), rather than interrupting a Wi-Fi flow to show a stop screen. A bus
   going imminent mid-settings is silent until settings is left.
+
+  Pressing the dial on a stop screen that's showing the plain list (more
+  than 10 minutes to the next bus) selects a row with the dial instead of
+  arming the next bus outright, since the list has more than one bus to
+  choose from. The dial then moves the highlight between rows; pressing
+  again arms (or disarms) that specific bus, regardless of its position in
+  the list — the same `bells` map and `Layout.bus_key/1` matching already
+  used for the single-bus countdown screens, so an alarm set here just keeps
+  working once that bus becomes the next one and its own countdown screen
+  takes over. `@list_selection_idle_ms` of no interaction, or the list no
+  longer applying (the soonest bus has gone under 10 minutes, or emptied),
+  returns to normal dial navigation.
   """
   use GenServer
   alias NestGen2.{Display, Image, Piezo, Power}
@@ -71,6 +83,7 @@ defmodule Foxbus.Screens do
   # Finer than the normal screen_step_degrees, for picking one of ~26+
   # characters on the password wheel rather than switching between 2-3 screens.
   @password_step_degrees 15
+  @list_selection_idle_ms 20_000
 
   def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -120,7 +133,10 @@ defmodule Foxbus.Screens do
       settings_power_hold: nil,
       settings_idle_timer: nil,
       settings_result_timer: nil,
-      settings_task_ref: nil
+      settings_task_ref: nil,
+      list_selection: nil,
+      list_selection_power_hold: nil,
+      list_selection_idle_timer: nil
     }
 
     {:ok, render(state)}
@@ -155,8 +171,18 @@ defmodule Foxbus.Screens do
   def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, %{settings: nil} = state) do
     steps = step(direction) + pending_steps()
     state = cancel_auto_advance(state)
-    state = %{state | index: Layout.navigate(state.index, length(state.screens), steps)}
-    {:noreply, state |> render() |> update_chirp()}
+    stop = current(state)
+
+    if selecting?(state, stop) do
+      count = Layout.list_row_count(effective_arrivals(state, stop))
+      {_stop, index} = state.list_selection
+      new_index = Layout.navigate(index, count, steps)
+      state = %{state | list_selection: {stop, new_index}} |> reset_list_selection_idle_timer()
+      {:noreply, render(state)}
+    else
+      state = %{state | index: Layout.navigate(state.index, length(state.screens), steps)}
+      {:noreply, state |> render() |> update_chirp()}
+    end
   end
 
   def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, state) do
@@ -183,19 +209,27 @@ defmodule Foxbus.Screens do
     state = cancel_auto_advance(state)
     stop = current(state)
 
-    if stop == :splash do
-      {:noreply, state |> open_settings() |> render()}
-    else
-      case next_bus(state, stop) do
-        nil ->
-          {:noreply, state}
+    cond do
+      stop == :splash ->
+        {:noreply, state |> open_settings() |> render()}
 
-        bus ->
-          chirping? = Layout.chirping?(mode(state, stop), bell(state, stop))
-          new_bell = Layout.press(bell(state, stop), chirping?)
-          state = put_in(state.bells[stop], {Layout.bus_key(bus), new_bell})
-          {:noreply, state |> render() |> update_chirp()}
-      end
+      selecting?(state, stop) ->
+        {:noreply, state |> toggle_selected_bell(stop) |> render()}
+
+      list_screen?(state, stop) and next_bus(state, stop) != nil ->
+        {:noreply, state |> open_list_selection(stop) |> render()}
+
+      true ->
+        case next_bus(state, stop) do
+          nil ->
+            {:noreply, state}
+
+          bus ->
+            chirping? = Layout.chirping?(mode(state, stop), bell(state, stop))
+            new_bell = Layout.press(bell(state, stop), chirping?)
+            state = put_in(state.bells[stop], {Layout.bus_key(bus), new_bell})
+            {:noreply, state |> render() |> update_chirp()}
+        end
     end
   end
 
@@ -230,6 +264,12 @@ defmodule Foxbus.Screens do
        %{state | settings: %{s | screen: :menu}, settings_result_timer: nil} |> render()}
 
   def handle_info(:settings_result_timeout, state), do: {:noreply, state}
+
+  def handle_info(:list_selection_idle_timeout, %{list_selection: nil} = state),
+    do: {:noreply, state}
+
+  def handle_info(:list_selection_idle_timeout, state),
+    do: {:noreply, state |> close_list_selection() |> render()}
 
   # For testing: moves off the splash onto the first stop after a few seconds
   # of nobody touching the dial or button, so a restart doesn't need a manual
@@ -354,6 +394,55 @@ defmodule Foxbus.Screens do
     if state.settings_idle_timer, do: Process.cancel_timer(state.settings_idle_timer)
     timer = Process.send_after(self(), :settings_idle_timeout, @settings_idle_ms)
     %{state | settings_idle_timer: timer}
+  end
+
+  # True while actively choosing a row on `stop`'s list screen — also false
+  # (not just absent) once that screen no longer shows a selectable list, so
+  # a stale selection from before the soonest bus went under 10 minutes (or
+  # the list emptied) is never acted on; render/1 is what actually clears it.
+  defp selecting?(state, stop) do
+    match?({^stop, _}, state.list_selection) and list_screen?(state, stop) and
+      next_bus(state, stop) != nil
+  end
+
+  defp open_list_selection(state, stop) do
+    {:ok, hold} = Power.keep_awake(:list_selection)
+
+    %{state | list_selection: {stop, 0}, list_selection_power_hold: hold}
+    |> reset_list_selection_idle_timer()
+  end
+
+  defp close_list_selection(state) do
+    if state.list_selection_power_hold, do: Power.release(state.list_selection_power_hold)
+    if state.list_selection_idle_timer, do: Process.cancel_timer(state.list_selection_idle_timer)
+
+    %{state | list_selection: nil, list_selection_power_hold: nil, list_selection_idle_timer: nil}
+  end
+
+  defp reset_list_selection_idle_timer(state) do
+    if state.list_selection_idle_timer, do: Process.cancel_timer(state.list_selection_idle_timer)
+    timer = Process.send_after(self(), :list_selection_idle_timeout, @list_selection_idle_ms)
+    %{state | list_selection_idle_timer: timer}
+  end
+
+  # Arms (or disarms) whichever bus is currently highlighted — not
+  # necessarily next_bus/2, which is why this doesn't go through bell/2 or
+  # Layout.press/2's chirping? argument: a list row is, by definition, more
+  # than 10 minutes out, so it's never already chirping.
+  defp toggle_selected_bell(state, stop) do
+    {^stop, index} = state.list_selection
+
+    case Enum.at(effective_arrivals(state, stop), index) do
+      nil ->
+        state
+
+      bus ->
+        key = Layout.bus_key(bus)
+        current = arrival_bell(state, stop, bus)
+        new_bell = if current == :none, do: :armed, else: :none
+        put_in(state.bells[stop], {key, new_bell})
+    end
+    |> reset_list_selection_idle_timer()
   end
 
   # The password wheel needs a finer dial step than the 2-3 highlightable
@@ -486,14 +575,33 @@ defmodule Foxbus.Screens do
     end
   end
 
-  # The bell only counts while it is still set for the stop's next bus.
+  # The next bus's bell only counts while it is still set for that exact bus.
   defp bell(state, stop) do
+    case next_bus(state, stop) do
+      nil -> :none
+      bus -> arrival_bell(state, stop, bus)
+    end
+  end
+
+  # Any arrival's stored bell, whether or not it's currently next_bus/2 — a
+  # row selected further down the list (see open_list_selection/2) stays
+  # armed as it works its way up, not just once it's imminent.
+  defp arrival_bell(state, stop, bus) do
     with {key, bell} <- Map.get(state.bells, stop),
-         %{} = bus <- next_bus(state, stop),
          ^key <- Layout.bus_key(bus) do
       bell
     else
       _ -> :none
+    end
+  end
+
+  # A stop has at most one armed bus at a time (the bells map holds a single
+  # {key, bell} pair), so this is at most one key — arming a different row
+  # replaces whichever was armed before, same as it always has.
+  defp armed_keys(state, stop) do
+    case Map.get(state.bells, stop) do
+      {key, :armed} -> [key]
+      _ -> []
     end
   end
 
@@ -508,13 +616,21 @@ defmodule Foxbus.Screens do
 
   # A closed (or not-yet-known) stop never counts as arriving/soon: there's no
   # real bus behind a stale scrape, or none confirmed yet, so nothing should
-  # auto-arm or chirp for it.
+  # auto-arm or chirp for it. Note this means mode/2 alone can't tell a
+  # genuine list apart from a closed/pending stop — both read as :list, since
+  # neither counts as arriving/soon — see list_screen?/2 for a check that can.
   defp mode(state, stop) do
     case closure_status(state, stop) do
       {:ok, nil} -> Layout.mode(effective_arrivals(state, stop), elapsed(state, stop))
       _ -> :list
     end
   end
+
+  # True only when the stop screen is genuinely showing the plain list (open,
+  # more than 10 minutes to the next bus) — unlike checking mode(state, stop)
+  # == :list alone, this doesn't also match a closed or not-yet-known stop.
+  defp list_screen?(state, stop),
+    do: closure_status(state, stop) == {:ok, nil} and mode(state, stop) == :list
 
   defp signature(%{settings: settings}) when settings != nil do
     {:settings, settings, Calendar.strftime(LondonTime.now(), "%H:%M")}
@@ -547,6 +663,29 @@ defmodule Foxbus.Screens do
 
     Display.present()
     %{state | shown: signature(state)}
+  end
+
+  defp render(%{settings: nil, list_selection: {stop, index}} = state) do
+    if selecting?(state, stop) do
+      selection = %{index: index, armed: armed_keys(state, stop)}
+
+      Layout.stop(
+        state.titles[stop],
+        effective_arrivals(state, stop),
+        elapsed(state, stop),
+        :none,
+        disruption(state, stop),
+        false,
+        selection
+      )
+      |> Layout.with_clock(LondonTime.now())
+      |> Enum.each(&draw(&1, state))
+
+      Display.present()
+      %{state | shown: signature(state)}
+    else
+      state |> close_list_selection() |> render()
+    end
   end
 
   defp render(state) do

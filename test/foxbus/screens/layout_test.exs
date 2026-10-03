@@ -79,6 +79,47 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
+  describe "list row selection" do
+    defp buses, do: [arrival("105", 14), arrival("1", 22), arrival("104", 38)]
+
+    test "a selected row is marked with a prefix" do
+      ops = Layout.stop("To Chesham", buses(), 0, :none, nil, false, %{index: 1, armed: []})
+      assert "› 1  22 min" in texts(ops)
+      assert "105  14 min" in texts(ops)
+      refute "› 105  14 min" in texts(ops)
+    end
+
+    test "the selected row is brightened even if its bus is scheduled, not live" do
+      scheduled = [arrival("105", 14, :scheduled)]
+      ops = Layout.stop("To Chesham", scheduled, 0, :none, nil, false, %{index: 0, armed: []})
+      [_title, row] = for {:text, _, _, _, opts} <- ops, do: opts[:color]
+      assert row == "#FFFFFF"
+    end
+
+    test "an armed row shows a bell glyph, an unarmed one doesn't" do
+      selection = %{index: 0, armed: [Layout.bus_key(Enum.at(buses(), 1))]}
+      ops = Layout.stop("To Chesham", buses(), 0, :none, nil, false, selection)
+      icons = for {:text, _, _, t, opts} <- ops, opts[:font] == :icons, do: t
+      assert icons == ["\u{E7F7}"]
+    end
+
+    test "no selection, no highlight or bells" do
+      ops = Layout.stop("To Chesham", buses())
+      refute Enum.any?(texts(ops), &String.starts_with?(&1, "› "))
+      refute Enum.any?(ops, &match?({:text, _, _, _, [font: :icons] ++ _}, &1))
+    end
+
+    test "list_row_count/1 matches what the list look actually renders" do
+      assert Layout.list_row_count(nil) == 0
+      assert Layout.list_row_count([]) == 0
+      assert Layout.list_row_count(buses()) == 3
+      assert Layout.list_row_count(for(m <- 1..10, do: arrival("105", m + 10))) == 4
+
+      multi_dest = for m <- 1..10, do: arrival_to("105", m + 10, "Dest #{m}")
+      assert Layout.list_row_count(multi_dest) == 3
+    end
+  end
+
   describe "a shared stop with more than one destination" do
     defp arrival_to(line, eta, destination),
       do: %Arrival{line: line, destination: destination, eta_minutes: eta, status: :live}
