@@ -98,6 +98,16 @@ what `mix.exs` configures by default) and `FakeWifiSource` (deterministic, no
 real network, for developing and testing the settings screens without
 hardware).
 
+The menu's second item, "Screen", sets how the screen sleeps and wakes:
+how long idle before it sleeps ("30 s" / "1 min" / "5 min" / "Always on"),
+and whether it wakes when someone approaches ("Wake on approach"). Each row
+is picked with the dial and cycled in place with a press — no further
+screen to drill into. The dial and button always wake the screen; there's
+no way to turn that off, since with wake-on-approach also off there'd be no
+way back short of a reboot. The choice is saved to disk (see
+`Foxbus.ScreenPower`) and re-applied on every boot, since `NestGen2.Power`
+itself always starts from its own defaults (30 s, every wake source).
+
 ## Build and test
 
 The Nest runs OTP 26 / Elixir 1.17, so build with that toolchain:

@@ -5,6 +5,10 @@ defmodule Foxbus.Application do
 
   @impl true
   def start(_type, _args) do
+    # NestGen2.Power always starts from its own defaults — put back whatever
+    # was last saved from the settings UI, if anything (see Foxbus.ScreenPower).
+    Foxbus.ScreenPower.apply_saved()
+
     stops = Foxbus.Config.stops()
 
     bus_pollers =

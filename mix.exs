@@ -58,6 +58,9 @@ defmodule Foxbus.MixProject do
         # Runtime override file (route, stops, default screen) — see
         # Foxbus.Config. nil means "config.exs next to assets_dir".
         config_path: nil,
+        # Saved screen sleep/wake choice — see Foxbus.ScreenPower. nil means
+        # "screen_power.exs next to assets_dir".
+        screen_power_path: nil,
         screen_step_degrees: 45
       ]
     ]

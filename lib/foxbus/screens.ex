@@ -338,9 +338,14 @@ defmodule Foxbus.Screens do
   defp open_settings(state) do
     status = wifi_source().status()
     versions = %{foxbus: foxbus_version(), sdk: sdk_version()}
+    screen_power = Foxbus.ScreenPower.load()
     {:ok, hold} = Power.keep_awake(:settings)
 
-    %{state | settings: Settings.open(status, versions), settings_power_hold: hold}
+    %{
+      state
+      | settings: Settings.open(status, versions, screen_power),
+        settings_power_hold: hold
+    }
     |> reset_settings_idle_timer()
   end
 
@@ -391,6 +396,13 @@ defmodule Foxbus.Screens do
   defp handle_settings_effect({:connect, ssid, password}, state) do
     %Task{ref: ref} = Task.async(fn -> wifi_source().connect(ssid, password) end)
     {:noreply, %{state | settings_task_ref: ref} |> render()}
+  end
+
+  # Unlike scan/connect, applying a screen-power choice is just two Power
+  # calls plus a small file write+sync — fast and synchronous, no Task.
+  defp handle_settings_effect({:screen_power, choice}, state) do
+    Foxbus.ScreenPower.apply(choice)
+    {:noreply, render(state)}
   end
 
   defp apply_task_result(state, result) do
