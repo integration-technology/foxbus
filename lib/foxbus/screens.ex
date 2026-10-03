@@ -8,16 +8,16 @@ defmodule Foxbus.Screens do
   moves off the splash onto the first stop by itself, so a restart shows live
   times without a manual turn. Any real interaction cancels this.
 
-  A bus's bell arms itself the moment it's 5 minutes or less away (see
-  `Foxbus.Screens.Layout.auto_arm/2`) — no press needed. The Nest only chirps
-  and wakes the screen for the stop currently on display, not for an armed
-  bus at a stop nobody's looking at; turning the dial away stops the chirp,
-  and turning back resumes it. It keeps chirping until either the dial is
-  pressed to silence it (see `Foxbus.Screens.Layout.press/2`) or the bus has
-  gone (a different bus arrives next, or it drops off the board). While
-  chirping, a `NestGen2.Power.keep_awake/1` hold keeps the screen lit instead
-  of repeatedly calling `Power.wake/0`; the hold is released the moment
-  chirping stops, for whichever reason.
+  No alarm sounds by default — pressing the dial on a stop screen arms its
+  next bus (see `Foxbus.Screens.Layout.press/2`); the bell starts chirping
+  once that bus is 5 minutes or less away. The Nest only chirps and wakes the
+  screen for the stop currently on display, not for an armed bus at a stop
+  nobody's looking at; turning the dial away stops the chirp, and turning
+  back resumes it. It keeps chirping until either the dial is pressed again
+  to mute it, or the bus has gone (a different bus arrives next, or it drops
+  off the board). While chirping, a `NestGen2.Power.keep_awake/1` hold keeps
+  the screen lit instead of repeatedly calling `Power.wake/0`; the hold is
+  released the moment chirping stops, for whichever reason.
 
   When Carousel names a stop's exact ATCO code as affected by a notice, its
   screen turns red with the direction and the notice's explanation in place of
@@ -26,7 +26,7 @@ defmodule Foxbus.Screens do
   says "Checking times" rather than risk showing a scheduled, non-arriving
   bus time ahead of knowing the stop might be closed.
 
-  Arrivals, the line's disruption status, and a stop's closure, all arrive
+  Arrivals, a stop's disruption status, and a stop's closure, all arrive
   through `Foxbus.Adapters.Sinks.ScreensSink`.
 
   Pressing the dial on the splash opens settings (`Foxbus.Screens.Settings`,
@@ -64,8 +64,9 @@ defmodule Foxbus.Screens do
   @spec show_arrivals(atom, list) :: :ok
   def show_arrivals(stop, arrivals), do: GenServer.cast(__MODULE__, {:arrivals, stop, arrivals})
 
-  @spec show_disruption(String.t() | nil) :: :ok
-  def show_disruption(explanation), do: GenServer.cast(__MODULE__, {:disruption, explanation})
+  @spec show_disruption(atom, String.t() | nil) :: :ok
+  def show_disruption(stop, explanation),
+    do: GenServer.cast(__MODULE__, {:disruption, stop, explanation})
 
   @spec show_closure(atom, String.t() | nil) :: :ok
   def show_closure(stop, explanation),
@@ -92,7 +93,7 @@ defmodule Foxbus.Screens do
       arrivals: %{},
       fetched_at: %{},
       bells: %{},
-      disruption: nil,
+      disruptions: %{},
       closures: %{},
       temperature: nil,
       background: background,
@@ -119,20 +120,18 @@ defmodule Foxbus.Screens do
         fetched_at: Map.put(state.fetched_at, stop, now())
     }
 
-    state = auto_arm_bells(state)
     state = if current(state) == stop, do: render(state), else: state
     {:noreply, update_chirp(state)}
   end
 
-  def handle_cast({:disruption, explanation}, state) do
-    state = %{state | disruption: explanation}
-    state = if current(state) != :splash, do: render(state), else: state
+  def handle_cast({:disruption, stop, explanation}, state) do
+    state = %{state | disruptions: Map.put(state.disruptions, stop, explanation)}
+    state = if current(state) == stop, do: render(state), else: state
     {:noreply, state}
   end
 
   def handle_cast({:closure, stop, explanation}, state) do
     state = %{state | closures: Map.put(state.closures, stop, explanation)}
-    state = auto_arm_bells(state)
     state = if current(state) == stop, do: render(state), else: state
     {:noreply, update_chirp(state)}
   end
@@ -237,7 +236,6 @@ defmodule Foxbus.Screens do
   # or colour changes.
   def handle_info(:tick, state) do
     schedule_tick()
-    state = auto_arm_bells(state)
     state = if signature(state) != state.shown, do: render(state), else: state
     {:noreply, update_chirp(state)}
   end
@@ -258,27 +256,6 @@ defmodule Foxbus.Screens do
   end
 
   def handle_info(_other, state), do: {:noreply, state}
-
-  # Arms the alarm for any stop whose next bus has just become imminent, with
-  # no press needed first (see Layout.auto_arm/2).
-  defp auto_arm_bells(state) do
-    bells =
-      for stop <- tl(state.screens), reduce: state.bells do
-        acc ->
-          case Layout.auto_arm(bell(state, stop), mode(state, stop)) do
-            :none ->
-              acc
-
-            # auto_arm/2 only returns non-:none for {:arriving, _}, which
-            # Layout.mode/2 only returns for a non-empty arrivals list — so
-            # next_bus/2 here is never nil.
-            new_bell ->
-              Map.put(acc, stop, {Layout.bus_key(next_bus(state, stop)), new_bell})
-          end
-      end
-
-    %{state | bells: bells}
-  end
 
   # Chirps only for the stop currently on screen — a bus going off at a stop
   # nobody's looking at neither sounds nor jumps the screen to it.
@@ -460,6 +437,8 @@ defmodule Foxbus.Screens do
   # can't tell those apart, since both read back as nil.
   defp closure_status(state, stop), do: Map.fetch(state.closures, stop)
 
+  defp disruption(state, stop), do: Map.get(state.disruptions, stop)
+
   # A closed (or not-yet-known) stop never counts as arriving/soon: there's no
   # real bus behind a stale scrape, or none confirmed yet, so nothing should
   # auto-arm or chirp for it.
@@ -483,7 +462,7 @@ defmodule Foxbus.Screens do
 
       stop ->
         {stop, mode(state, stop), bell(state, stop), Map.get(state.arrivals, stop),
-         state.disruption, closure_status(state, stop), minute}
+         disruption(state, stop), closure_status(state, stop), minute}
     end
   end
 
@@ -523,7 +502,7 @@ defmodule Foxbus.Screens do
                 Map.get(state.arrivals, stop),
                 elapsed(state, stop),
                 bell(state, stop),
-                state.disruption
+                disruption(state, stop)
               )
 
             {:ok, explanation} ->

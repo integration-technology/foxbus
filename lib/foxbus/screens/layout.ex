@@ -17,13 +17,16 @@ defmodule Foxbus.Screens.Layout do
       `Foxbus.Config.lines/0`) — each row gets its own destination under it,
       since the screen's one configured title can't speak for all of them
     * 10 minutes or less (`:soon`) — orange, the minutes as a large countdown
-    * 5 minutes or less (`:arriving`) — green; the bell arms itself here (see
-      `auto_arm/2`) and chirps until silenced or the bus has gone
+    * 5 minutes or less (`:arriving`) — green; a bell armed by a press (see
+      `press/2`) chirps here, until muted or the bus has gone
 
   Any of the three gets a short line of the notice's own title, below the
-  countdown, when the line has an active disruption notice — not just an
-  icon, since the dial is already taken by muting the alarm here, so this is
-  the only way to see what the issue actually is without navigating away.
+  countdown, when this stop has an active disruption notice on one of its
+  lines — not just an icon, since the dial is already taken by arming or
+  muting the alarm here, so this is the only way to see what the issue
+  actually is without navigating away. A notice naming specific affected
+  stops only shows on those stops, not every stop on the line (see
+  `Foxbus.Adapters.Sources.CarouselDisruptionsSource`).
 
   A fourth look, `closed/2`, replaces all of that: when Carousel's board
   names this exact stop as affected by a notice, there is no countdown to
@@ -92,16 +95,6 @@ defmodule Foxbus.Screens.Layout do
   @spec chirping?(mode, bell) :: boolean
   def chirping?({:arriving, _}, :armed), do: true
   def chirping?(_mode, _bell), do: false
-
-  @doc """
-  Arms the alarm by itself once a bus goes from "soon" to "arriving", so it
-  always sounds without needing a press ahead of time. Leaves an already-armed
-  bell alone, and never re-arms a silenced one — once muted, a bus stays muted
-  until it's a different bus (see `bus_key/1`).
-  """
-  @spec auto_arm(bell, mode) :: bell
-  def auto_arm(:none, {:arriving, _}), do: :armed
-  def auto_arm(bell, _mode), do: bell
 
   @doc "Identifies a bus across fetches, so a bell follows the bus it was set for."
   @spec bus_key(Arrival.t()) :: {String.t(), String.t()}
