@@ -15,11 +15,9 @@ defmodule Foxbus.Screens.Layout do
       there are none left today); if the ones shown go to more than one
       destination — a shared stop watching several lines (see
       `Foxbus.Config.lines/0`) — each row gets its own destination under it,
-      since the screen's one configured title can't speak for all of them. A
-      press here (see `Foxbus.Screens`) selects a row with the dial instead
-      of switching screens, highlighting it and marking any armed row with a
-      small bell, so a bus further off than the next one can get its own
-      alarm ahead of time
+      since the screen's one configured title can't speak for all of them.
+      No alarm can be set from here — only the countdown screens below have
+      a single bus to arm
     * 10 minutes or less (`:soon`) — orange, the minutes as a large countdown
     * 5 minutes or less (`:arriving`) — green; a bell armed by a press (see
       `press/2`) chirps here, until muted or the bus has gone
@@ -39,8 +37,10 @@ defmodule Foxbus.Screens.Layout do
   alias Foxbus.Domain.Arrival
 
   @blue "#435FA6"
-  @orange "#A2551B"
-  @green "#206F37"
+  # Darker and more saturated than the originals (#A2551B / #206F37) — a
+  # device-capture request from Owain, unverified since the next one.
+  @orange "#8A3A00"
+  @green "#145C29"
   @red "#C62828"
   @white "#FFFFFF"
   @dark "#1C1C1E"
@@ -62,7 +62,6 @@ defmodule Foxbus.Screens.Layout do
   @type mode :: :list | {:soon, non_neg_integer} | {:arriving, non_neg_integer}
   @type bell :: :none | :armed | :silenced
   @type bus_key :: {String.t(), String.t(), Time.t() | nil}
-  @type selection :: %{index: non_neg_integer, armed: [bus_key]} | nil
 
   def blue, do: @blue
 
@@ -188,27 +187,17 @@ defmodule Foxbus.Screens.Layout do
   board doesn't always drop a departed bus promptly, so this could mean it's
   held up rather than gone (see `Foxbus.Screens`, which tracks how long and
   eventually drops it from the list entirely rather than leave it
-  `uncertain?` forever); `selection`, only meaningful in the plain list look,
-  highlights one row and marks any row in `armed` with a small bell (see
-  `Foxbus.Screens` for how a row's alarm is set and tracked).
+  `uncertain?` forever).
   """
-  @spec stop(
-          String.t(),
-          [Arrival.t()] | nil,
-          non_neg_integer,
-          bell,
-          String.t() | nil,
-          boolean,
-          selection
-        ) :: list
+  @spec stop(String.t(), [Arrival.t()] | nil, non_neg_integer, bell, String.t() | nil, boolean) ::
+          list
   def stop(
         title,
         arrivals,
         elapsed_ms \\ 0,
         bell \\ :none,
         disruption \\ nil,
-        uncertain? \\ false,
-        selection \\ nil
+        uncertain? \\ false
       ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
@@ -228,7 +217,7 @@ defmodule Foxbus.Screens.Layout do
             do: [],
             else: [{:text, 160, 54, title, text_opts(24, @white, @dark)}]
 
-        [blank() | title_line] ++ body(arrivals, selection) ++ warning_line(disruption, @dark)
+        [blank() | title_line] ++ body(arrivals) ++ warning_line(disruption, @dark)
 
       {:soon, m} ->
         countdown(title, hd(arrivals), m, @orange, bell, false) ++
@@ -328,26 +317,12 @@ defmodule Foxbus.Screens.Layout do
       else: String.slice(text, 0, max_chars - 1) <> "…"
   end
 
-  @doc """
-  How many rows the list look would render for `arrivals` — the same
-  truncation `body/2` applies — so `Foxbus.Screens` can keep a row selection
-  in bounds without duplicating that truncation logic.
-  """
-  @spec list_row_count([Arrival.t()] | nil) :: non_neg_integer
-  def list_row_count(nil), do: 0
+  defp body(nil), do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, @dark)}]
 
-  def list_row_count(arrivals) do
-    max = if multi_destination?(arrivals), do: @multi_dest_max_rows, else: @max_rows
-    min(length(arrivals), max)
-  end
-
-  defp body(nil, _selection),
-    do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, @dark)}]
-
-  defp body(arrivals, selection) do
+  defp body(arrivals) do
     if multi_destination?(arrivals),
-      do: body_with_destinations(arrivals, selection),
-      else: body_rows(arrivals, selection)
+      do: body_with_destinations(arrivals),
+      else: body_rows(arrivals)
   end
 
   # True once more than one line is watched (see Foxbus.Config.lines/0) and
@@ -367,76 +342,36 @@ defmodule Foxbus.Screens.Layout do
   @multi_dest_row_size 30
   @multi_dest_destination_size 18
 
-  defp body_rows(arrivals, selection) do
-    rows = Enum.take(arrivals, @max_rows)
-
-    ops =
-      rows
-      |> Enum.with_index()
-      |> Enum.map(fn {a, i} ->
-        {:text, 160, @row_y + i * @row_gap, row_label(a, i, selection),
-         text_opts(@row_size, row_color(a, i, selection), @dark)}
-      end)
-
-    ops ++ add_row_bells(rows, selection, @row_y, @row_gap)
-  end
-
-  defp body_with_destinations(arrivals, selection) do
-    rows = Enum.take(arrivals, @multi_dest_max_rows)
-
-    ops =
-      rows
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {a, i} ->
-        y = @row_y + i * @multi_dest_row_gap
-
-        [
-          {:text, 160, y, row_label(a, i, selection),
-           text_opts(@multi_dest_row_size, row_color(a, i, selection), @dark)},
-          # Shrunk from 24 to 20 chars to match the bigger font — a
-          # proportional guess, also unverified.
-          {:text, 160, y + 24, truncate(a.destination, 20),
-           text_opts(@multi_dest_destination_size, @dim, @dark)}
-        ]
-      end)
-
-    ops ++ add_row_bells(rows, selection, @row_y, @multi_dest_row_gap)
-  end
-
-  # Marks a selected row with a "› " prefix and bright text, same convention
-  # as the highlighted-item look used elsewhere (e.g.
-  # `Foxbus.Screens.SettingsLayout`'s menu items).
-  defp row_label(a, i, selection) do
-    prefix = if selected?(i, selection), do: "› ", else: ""
-    prefix <> "#{a.line}  #{Arrival.eta_text(a)}"
-  end
-
-  defp row_color(a, i, selection) do
-    if selected?(i, selection),
-      do: @white,
-      else: if(a.status == :live, do: @white, else: @dim)
-  end
-
-  defp selected?(i, %{index: index}), do: i == index
-  defp selected?(_i, nil), do: false
-
-  # A small bell glyph on any armed row, off to the side of the row's own
-  # text — a separate op, same font-mixing workaround as
-  # `Foxbus.Screens.SettingsLayout`'s network rows, since the icon font has
-  # no digits or letters of its own. Position is a first guess, unverified
-  # on the real device.
-  defp add_row_bells(arrivals, selection, row_y, row_gap) do
+  defp body_rows(arrivals) do
     arrivals
+    |> Enum.take(@max_rows)
     |> Enum.with_index()
-    |> Enum.filter(fn {a, _i} -> armed?(a, selection) end)
-    |> Enum.map(fn {_a, i} ->
-      {:text, 280, row_y + i * row_gap, @bell_armed,
-       [font: :icons] ++ text_opts(18, @white, @dark)}
+    |> Enum.map(fn {a, i} ->
+      color = if a.status == :live, do: @white, else: @dim
+
+      {:text, 160, @row_y + i * @row_gap, "#{a.line}  #{Arrival.eta_text(a)}",
+       text_opts(@row_size, color, @dark)}
     end)
   end
 
-  defp armed?(a, %{armed: armed}), do: bus_key(a) in armed
-  defp armed?(_a, nil), do: false
+  defp body_with_destinations(arrivals) do
+    arrivals
+    |> Enum.take(@multi_dest_max_rows)
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {a, i} ->
+      color = if a.status == :live, do: @white, else: @dim
+      y = @row_y + i * @multi_dest_row_gap
+
+      [
+        {:text, 160, y, "#{a.line}  #{Arrival.eta_text(a)}",
+         text_opts(@multi_dest_row_size, color, @dark)},
+        # Shrunk from 24 to 20 chars to match the bigger font — a
+        # proportional guess, also unverified.
+        {:text, 160, y + 24, truncate(a.destination, 20),
+         text_opts(@multi_dest_destination_size, @dim, @dark)}
+      ]
+    end)
+  end
 
   @doc """
   Adds the time ("HH:MM", UK local) to a screen, on that screen's background:
