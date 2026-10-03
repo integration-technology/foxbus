@@ -148,7 +148,8 @@ defmodule Foxbus.Screens do
       state
       | arrivals: Map.put(state.arrivals, stop, arrivals),
         fetched_at: Map.put(state.fetched_at, stop, now()),
-        due_since: track_due(state.due_since, stop, arrivals)
+        due_since: track_due(state.due_since, stop, arrivals),
+        bells: rebind_bell(state.bells, stop, arrivals)
     }
 
     state = if current(state) == stop, do: render(state), else: state
@@ -525,19 +526,45 @@ defmodule Foxbus.Screens do
 
   # Remembers when the current next bus first read as due (eta <= 0), per
   # stop, so effective_arrivals/2 can tell "just went due" from "been due a
-  # suspiciously long time" — see the moduledoc. Keyed by bus_key, not just
-  # presence, so a new bus reading due immediately (rather than the same one
-  # lingering) restarts the clock.
+  # suspiciously long time" — see the moduledoc. Tracked via Layout.rebind/2,
+  # tolerant of a live bus's own scheduled_time drifting between fetches (see
+  # Layout.bus_key/1), not plain equality — otherwise a bus stuck at "0 min"
+  # would read as a "new" due bus on nearly every poll, never accumulating
+  # enough elapsed time to ever actually get dropped.
   defp track_due(due_since, stop, [%Arrival{eta_minutes: eta} = bus | _]) when eta <= 0 do
-    key = Layout.bus_key(bus)
-
     case Map.get(due_since, stop) do
-      {^key, _first_seen} -> due_since
-      _ -> Map.put(due_since, stop, {key, now()})
+      {key, first_seen} ->
+        case Layout.rebind([bus], key) do
+          nil -> Map.put(due_since, stop, {Layout.bus_key(bus), now()})
+          new_key -> Map.put(due_since, stop, {new_key, first_seen})
+        end
+
+      nil ->
+        Map.put(due_since, stop, {Layout.bus_key(bus), now()})
     end
   end
 
   defp track_due(due_since, stop, _arrivals), do: Map.delete(due_since, stop)
+
+  # Re-attaches a stop's armed bell to whichever current arrival is most
+  # likely the same physical bus as the one it was set for — see
+  # Layout.rebind/2 and Layout.bus_key/1's drift warning. Without this, a
+  # live bus's self-computed scheduled_time shifting by about a minute on an
+  # ordinary poll (not even a real delay) would silently drop the alarm.
+  # Drops the bell entirely once nothing in the new fetch is close enough —
+  # the bus genuinely seems to have left the board.
+  defp rebind_bell(bells, stop, arrivals) do
+    case Map.get(bells, stop) do
+      nil ->
+        bells
+
+      {key, bell} ->
+        case Layout.rebind(arrivals, key) do
+          nil -> Map.delete(bells, stop)
+          new_key -> Map.put(bells, stop, {new_key, bell})
+        end
+    end
+  end
 
   # How long the current (fetched, not yet dropped) next bus has read as due,
   # or nil if it isn't the one due_since is tracking — e.g. a fresh fetch

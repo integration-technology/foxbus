@@ -238,9 +238,9 @@ defmodule Foxbus.Screens.LayoutTest do
       assert icons.(:none) == []
     end
 
-    test "a bell belongs to a bus by line, destination, and roughly its scheduled time" do
+    test "a bell belongs to a bus by line, destination, and scheduled time" do
       assert Layout.bus_key(arrival("105", 3)) == {"105", "x", nil}
-      assert Layout.bus_key(arrival("105", 3, :live, ~T[15:07:00])) == {"105", "x", {15, 5}}
+      assert Layout.bus_key(arrival("105", 3, :live, ~T[15:07:00])) == {"105", "x", ~T[15:07:00]}
     end
 
     test "two departures of the same route and destination get different keys" do
@@ -248,25 +248,65 @@ defmodule Foxbus.Screens.LayoutTest do
       later = arrival("104", 50, :live, ~T[15:39:00])
       refute Layout.bus_key(earlier) == Layout.bus_key(later)
     end
+  end
 
-    test "a live bus's key survives its eta ticking down normally between polls" do
+  describe "rebind/2 (tolerant re-matching across fetches)" do
+    test "matches a live bus whose eta ticked down normally, no real delay" do
       # CarouselScrapeSource computes scheduled_time fresh each poll as
-      # now + eta, so it drifts by about a minute as the eta itself ticks
-      # down — simulating two polls, 30 s apart, with the eta correctly
-      # ticking from 9 to 8 minutes (no real delay, just normal polling).
-      fetch_1 = ~N[2026-10-03 09:31:00] |> NaiveDateTime.add(9 * 60, :second)
-      fetch_2 = ~N[2026-10-03 09:31:30] |> NaiveDateTime.add(8 * 60, :second)
+      # now + eta, so it shifts by about a minute as the eta itself ticks
+      # down — simulating the key from an earlier fetch (eta 9 at 09:31:00,
+      # so scheduled ~09:40) against a later fetch where that same bus is
+      # now reported as eta 8 (scheduled ~09:40 still, maybe 09:39).
+      key = Layout.bus_key(arrival("105", 9, :live, ~T[09:40:00]))
+      next_fetch = [arrival("105", 8, :live, ~T[09:39:00])]
 
-      key = fn due ->
-        Layout.bus_key(arrival("105", 8, :live, Time.new!(due.hour, due.minute, 0)))
-      end
-
-      assert key.(fetch_1) == key.(fetch_2)
+      assert Layout.rebind(next_fetch, key) == Layout.bus_key(hd(next_fetch))
     end
 
-    test "midnight wraps rather than producing an invalid hour" do
-      assert {hour, _minute} = elem(Layout.bus_key(arrival("105", 3, :live, ~T[23:58:00])), 2)
-      assert hour in 0..23
+    test "matches across a rounding boundary a fixed bucket would have split" do
+      key = Layout.bus_key(arrival("105", 9, :live, ~T[14:42:00]))
+      next_fetch = [arrival("105", 8, :live, ~T[14:43:00])]
+
+      assert Layout.rebind(next_fetch, key) == Layout.bus_key(hd(next_fetch))
+    end
+
+    test "doesn't match a different departure of the same route, further off than the tolerance" do
+      key = Layout.bus_key(arrival("104", 11, :live, ~T[14:41:00]))
+      other_departure = [arrival("104", 50, :live, ~T[15:39:00])]
+
+      assert Layout.rebind(other_departure, key) == nil
+    end
+
+    test "picks the closest of several candidates on the same route" do
+      key = Layout.bus_key(arrival("104", 10, :live, ~T[14:41:00]))
+
+      candidates = [
+        arrival("104", 9, :live, ~T[14:40:00]),
+        arrival("104", 60, :live, ~T[15:39:00])
+      ]
+
+      assert Layout.rebind(candidates, key) == Layout.bus_key(hd(candidates))
+    end
+
+    test "doesn't match a different line or destination at the same time" do
+      key = Layout.bus_key(arrival("104", 9, :live, ~T[14:41:00]))
+      different_line = [arrival("105", 9, :live, ~T[14:41:00])]
+
+      assert Layout.rebind(different_line, key) == nil
+    end
+
+    test "two unparseable (nil scheduled_time) arrivals on the same route still match" do
+      # arrival/4's default scheduled_time is nil, same as
+      # CarouselScrapeSource's own unparseable-text fallback — degenerate,
+      # but matching nil against nil is no worse than the line+destination
+      # keying this replaced.
+      key = Layout.bus_key(arrival("105", 0))
+      assert Layout.rebind([arrival("105", 0)], key) == key
+    end
+
+    test "nothing to rebind against when arrivals is empty" do
+      key = Layout.bus_key(arrival("105", 9, :live, ~T[14:41:00]))
+      assert Layout.rebind([], key) == nil
     end
   end
 
