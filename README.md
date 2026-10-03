@@ -11,6 +11,7 @@ entry in [CHANGELOG.md](CHANGELOG.md).
 
 | foxbus | nest_gen2 |
 |---|---|
+| 0.2.x | 0.2.x |
 | 0.1.x | 0.1.x |
 
 Turning the dial moves between three screens, clockwise forwards and anticlockwise
@@ -38,6 +39,13 @@ says "No more buses today". If Carousel instead names that stop's exact ATCO
 code as affected by a notice, the screen turns red with the direction and the
 notice's explanation — no countdown, since there's no real bus behind it. The
 screen wakes on the dial or when someone walks up, and sleeps after 30 seconds.
+
+No alarm sounds by default: pressing the dial on a stop screen arms its next
+bus, and the bell starts chirping once that bus is 5 minutes or less away —
+pressing again mutes it. If a line has an active disruption notice that names
+this stop specifically, a short line of the notice's own title shows below
+the countdown; a notice naming other stops on the same line doesn't show
+here.
 
 ## Structure
 
@@ -71,7 +79,7 @@ recompile or redeploy needed. A missing file, or a key it doesn't set, falls
 back to mix.exs' compiled `env`; a malformed file is ignored rather than
 stopping the app from booting.
 
-## Wi-Fi settings (in progress)
+## Wi-Fi settings
 
 Pressing the dial on the splash opens settings: Wi-Fi status (SSID, IP,
 signal), the foxbus and SDK versions, and a flow to join a different network
@@ -80,11 +88,10 @@ doesn't already know → connect). ~60 s idle, or selecting Back, returns to
 the splash.
 
 This is built against `Foxbus.Ports.WifiSource`, a port with two adapters:
-`FakeWifiSource` (deterministic, no real network — what `mix.exs` currently
-configures) and `NestGen2WifiSource` (a thin wrapper over `NestGen2.Wifi`,
-which doesn't exist until nest_gen2 0.2.0). **Not yet deployed with the fake
-adapter live** — swap `wifi_source` in `mix.exs` to `NestGen2WifiSource` once
-0.2.0 is available, and this becomes real.
+`NestGen2WifiSource` (a thin wrapper over `NestGen2.Wifi`, nest_gen2 0.2.0 —
+what `mix.exs` configures by default) and `FakeWifiSource` (deterministic, no
+real network, for developing and testing the settings screens without
+hardware).
 
 ## Build and test
 

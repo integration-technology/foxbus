@@ -4,7 +4,7 @@ defmodule Foxbus.MixProject do
   def project do
     [
       app: :foxbus,
-      version: "0.1.1",
+      version: "0.2.0",
       # The Nest runs Elixir 1.17 on OTP 26: build with that toolchain
       # (source nest_gen2_sdk/platform/host_env.sh).
       elixir: "~> 1.17",
@@ -18,12 +18,12 @@ defmodule Foxbus.MixProject do
   end
 
   # The SDK from Hex, or a local path for co-development (set NEST_GEN2_PATH
-  # when working on both repos at once). "~> 0.1.0", not "~> 0.1" — the
-  # trailing .0 matters, since "~> 0.1" alone would also allow a breaking 0.2
+  # when working on both repos at once). "~> 0.2.0", not "~> 0.2" — the
+  # trailing .0 matters, since "~> 0.2" alone would also allow a breaking 0.3
   # before 1.0.
   defp nest_gen2_dep do
     case System.get_env("NEST_GEN2_PATH") do
-      nil -> {:nest_gen2, "~> 0.1.0"}
+      nil -> {:nest_gen2, "~> 0.2.0"}
       path -> {:nest_gen2, path: path}
     end
   end
@@ -53,9 +53,7 @@ defmodule Foxbus.MixProject do
         disruptions_sink: Foxbus.Adapters.Sinks.ScreensSink,
         stop_closure_source: Foxbus.Adapters.Sources.CarouselStopClosureSource,
         stop_closure_sink: Foxbus.Adapters.Sinks.ScreensSink,
-        # TEMPORARY: the fake, until nest_gen2 0.2.0 (NestGen2.Wifi) ships —
-        # swap to Foxbus.Adapters.Sources.NestGen2WifiSource once it's live.
-        wifi_source: Foxbus.Adapters.Sources.FakeWifiSource,
+        wifi_source: Foxbus.Adapters.Sources.NestGen2WifiSource,
         assets_dir: "/media/scratch/.nest_gen2_sdk/foxbus",
         # Runtime override file (route, stops, default screen) — see
         # Foxbus.Config. nil means "config.exs next to assets_dir".

@@ -4,7 +4,23 @@ All notable changes to `foxbus`. Versions follow [Semantic Versioning](https://s
 while the version is 0.x, a minor release (0.1 → 0.2) may change behaviour.
 
 Depends on [`nest_gen2`](https://github.com/integration-technology/nest_gen2_sdk);
-foxbus 0.1.x targets nest_gen2 0.1.x.
+foxbus 0.2.x targets nest_gen2 0.2.x.
+
+## 0.2.0 (2026-10-03)
+
+- Wi-Fi settings: pressing the dial on the splash opens a settings screen showing Wi-Fi
+  status (SSID, IP, signal), the foxbus and SDK versions, and a flow to join a different
+  network (scan → pick → a character-wheel password entry for secured networks it doesn't
+  already know → connect). ~60 s idle, or selecting Back, returns to the splash. Built
+  against `Foxbus.Ports.WifiSource`, backed by `NestGen2.Wifi` (nest_gen2 0.2.0).
+- The alarm bell no longer arms itself: pressing the dial on a stop screen arms its next
+  bus, and a bus only chirps once armed and within 5 minutes; a second press mutes it.
+  Previously the bell armed itself automatically the moment a bus went imminent.
+- Disruption notices are now checked per stop rather than for the whole app: a notice
+  naming specific affected stops only shows its warning line on those stops, not on every
+  stop watching the same line (`CarouselDisruptionsSource` now also reads a notice's
+  "Affected stops" list, the same markup `CarouselStopClosureSource` reads for closures).
+- Dependency: `nest_gen2` bumped to `~> 0.2.0`.
 
 ## 0.1.1 (2026-10-02)
 
