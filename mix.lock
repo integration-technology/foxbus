@@ -1,4 +1,4 @@
 %{
   "floki": {:hex, :floki, "0.38.4", "10f98971e892aed2c2f1b3a0f928e488e3797e1c6dd3dfd98db40b14e9a78bcf", [:mix], [], "hexpm", "bdb34645eee8e79845c7edaca2d4099a52804ee4d4a3ecc683a69451f0244973"},
-  "nest_gen2": {:hex, :nest_gen2, "0.1.0", "2cebd33de661f11832d395e4b916f986d73d7c20a485e93bceee4a8b85fd72af", [:mix], [], "hexpm", "abda7905e66b4e8a78baa57b2ee4038cbfba8a121d979e1b37fb7bc7d9c3a330"},
+  "nest_gen2": {:hex, :nest_gen2, "0.2.0", "1f992667a775325a134a513d3651503833aebd71dd3fe7f978e1df581975b7e9", [:mix], [], "hexpm", "5c7fdd2ae61127b957e28dad0e740c3643514d193563ef34eee75ebf1424ae32"},
 }
