@@ -238,15 +238,35 @@ defmodule Foxbus.Screens.LayoutTest do
       assert icons.(:none) == []
     end
 
-    test "a bell belongs to a bus by line, destination, and scheduled time" do
+    test "a bell belongs to a bus by line, destination, and roughly its scheduled time" do
       assert Layout.bus_key(arrival("105", 3)) == {"105", "x", nil}
-      assert Layout.bus_key(arrival("105", 3, :live, ~T[15:07:00])) == {"105", "x", ~T[15:07:00]}
+      assert Layout.bus_key(arrival("105", 3, :live, ~T[15:07:00])) == {"105", "x", {15, 5}}
     end
 
     test "two departures of the same route and destination get different keys" do
       earlier = arrival("104", 11, :live, ~T[14:41:00])
       later = arrival("104", 50, :live, ~T[15:39:00])
       refute Layout.bus_key(earlier) == Layout.bus_key(later)
+    end
+
+    test "a live bus's key survives its eta ticking down normally between polls" do
+      # CarouselScrapeSource computes scheduled_time fresh each poll as
+      # now + eta, so it drifts by about a minute as the eta itself ticks
+      # down — simulating two polls, 30 s apart, with the eta correctly
+      # ticking from 9 to 8 minutes (no real delay, just normal polling).
+      fetch_1 = ~N[2026-10-03 09:31:00] |> NaiveDateTime.add(9 * 60, :second)
+      fetch_2 = ~N[2026-10-03 09:31:30] |> NaiveDateTime.add(8 * 60, :second)
+
+      key = fn due ->
+        Layout.bus_key(arrival("105", 8, :live, Time.new!(due.hour, due.minute, 0)))
+      end
+
+      assert key.(fetch_1) == key.(fetch_2)
+    end
+
+    test "midnight wraps rather than producing an invalid hour" do
+      assert {hour, _minute} = elem(Layout.bus_key(arrival("105", 3, :live, ~T[23:58:00])), 2)
+      assert hour in 0..23
     end
   end
 
