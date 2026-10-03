@@ -29,6 +29,12 @@ defmodule Foxbus.Screens do
   Arrivals, a stop's disruption status, and a stop's closure, all arrive
   through `Foxbus.Adapters.Sinks.ScreensSink`.
 
+  Carousel's board doesn't always drop a bus the moment it actually departs —
+  its live ETA can stay reported as "due" (0 min) for a while after. Rather
+  than leave the screen stuck green on a bus that's already gone, once the
+  next bus has read as due for more than `@stale_due_ms`, it's treated as
+  gone and the one behind it (if any) takes its place.
+
   Pressing the dial on the splash opens settings (`Foxbus.Screens.Settings`,
   rendered by `Foxbus.Screens.SettingsLayout`) — Wi-Fi status, versions, and
   changing network. While open: a `Power.keep_awake(:settings)` hold keeps
@@ -46,6 +52,7 @@ defmodule Foxbus.Screens do
   use GenServer
   alias NestGen2.{Display, Image, Piezo, Power}
   alias Foxbus.LondonTime
+  alias Foxbus.Domain.Arrival
   alias Foxbus.Screens.{Layout, Settings, SettingsLayout}
 
   @tick_ms 10_000
@@ -55,6 +62,9 @@ defmodule Foxbus.Screens do
   @chirp [{2600, 70, 0}, {3300, 90, 130}]
   @settings_idle_ms 60_000
   @settings_result_ms 5_000
+  # How long the next bus can read as due (0 min) before it's treated as
+  # gone rather than still shown — see the moduledoc.
+  @stale_due_ms 3 * 60_000
   # Finer than the normal screen_step_degrees, for picking one of ~26+
   # characters on the password wheel rather than switching between 2-3 screens.
   @password_step_degrees 15
@@ -92,6 +102,7 @@ defmodule Foxbus.Screens do
       index: default_index,
       arrivals: %{},
       fetched_at: %{},
+      due_since: %{},
       bells: %{},
       disruptions: %{},
       closures: %{},
@@ -117,7 +128,8 @@ defmodule Foxbus.Screens do
     state = %{
       state
       | arrivals: Map.put(state.arrivals, stop, arrivals),
-        fetched_at: Map.put(state.fetched_at, stop, now())
+        fetched_at: Map.put(state.fetched_at, stop, now()),
+        due_since: track_due(state.due_since, stop, arrivals)
     }
 
     state = if current(state) == stop, do: render(state), else: state
@@ -413,9 +425,42 @@ defmodule Foxbus.Screens do
   defp current(state), do: Enum.at(state.screens, state.index)
 
   defp next_bus(state, stop) do
-    case Map.get(state.arrivals, stop) do
+    case effective_arrivals(state, stop) do
       [bus | _] -> bus
       _ -> nil
+    end
+  end
+
+  # Remembers when the current next bus first read as due (eta <= 0), per
+  # stop, so effective_arrivals/2 can tell "just went due" from "been due a
+  # suspiciously long time" — see the moduledoc. Keyed by bus_key, not just
+  # presence, so a new bus reading due immediately (rather than the same one
+  # lingering) restarts the clock.
+  defp track_due(due_since, stop, [%Arrival{eta_minutes: eta} = bus | _]) when eta <= 0 do
+    key = Layout.bus_key(bus)
+
+    case Map.get(due_since, stop) do
+      {^key, _first_seen} -> due_since
+      _ -> Map.put(due_since, stop, {key, now()})
+    end
+  end
+
+  defp track_due(due_since, stop, _arrivals), do: Map.delete(due_since, stop)
+
+  # The fetched arrivals, minus a leading bus that's read as due for longer
+  # than @stale_due_ms — Carousel's board doesn't always drop a departed bus
+  # promptly, and showing it forever as "0 min" looks like foxbus has frozen.
+  defp effective_arrivals(state, stop) do
+    arrivals = Map.get(state.arrivals, stop)
+
+    case {arrivals, Map.get(state.due_since, stop)} do
+      {[bus | rest], {key, first_seen}} ->
+        if Layout.bus_key(bus) == key and now() - first_seen > @stale_due_ms,
+          do: rest,
+          else: arrivals
+
+      _ ->
+        arrivals
     end
   end
 
@@ -444,7 +489,7 @@ defmodule Foxbus.Screens do
   # auto-arm or chirp for it.
   defp mode(state, stop) do
     case closure_status(state, stop) do
-      {:ok, nil} -> Layout.mode(Map.get(state.arrivals, stop), elapsed(state, stop))
+      {:ok, nil} -> Layout.mode(effective_arrivals(state, stop), elapsed(state, stop))
       _ -> :list
     end
   end
@@ -461,7 +506,7 @@ defmodule Foxbus.Screens do
         {:splash, state.temperature, minute}
 
       stop ->
-        {stop, mode(state, stop), bell(state, stop), Map.get(state.arrivals, stop),
+        {stop, mode(state, stop), bell(state, stop), effective_arrivals(state, stop),
          disruption(state, stop), closure_status(state, stop), minute}
     end
   end
@@ -499,7 +544,7 @@ defmodule Foxbus.Screens do
             {:ok, nil} ->
               Layout.stop(
                 state.titles[stop],
-                Map.get(state.arrivals, stop),
+                effective_arrivals(state, stop),
                 elapsed(state, stop),
                 bell(state, stop),
                 disruption(state, stop)
