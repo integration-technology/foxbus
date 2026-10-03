@@ -61,7 +61,7 @@ defmodule Foxbus.Screens.Layout do
 
   @type mode :: :list | {:soon, non_neg_integer} | {:arriving, non_neg_integer}
   @type bell :: :none | :armed | :silenced
-  @type bus_key :: {String.t(), String.t(), Time.t() | nil}
+  @type bus_key :: {String.t(), String.t(), {0..23, 0..59} | nil}
   @type selection :: %{index: non_neg_integer, armed: [bus_key]} | nil
 
   def blue, do: @blue
@@ -102,19 +102,48 @@ defmodule Foxbus.Screens.Layout do
   def chirping?({:arriving, _}, :armed), do: true
   def chirping?(_mode, _bell), do: false
 
+  # Wide enough that a live bus's self-computed scheduled_time (see below)
+  # ticking by about a minute on an ordinary poll stays in the same bucket;
+  # narrow enough that two genuinely different departures — normally tens of
+  # minutes apart — still land in different ones. A service with a shorter
+  # headway than this would still collide; there's nothing else about a
+  # specific trip available from the scrape to tell them apart by.
+  @bus_key_bucket_minutes 5
+
   @doc """
   Identifies one specific departure across fetches, so a bell follows the bus
   it was set for. Line and destination alone aren't enough — a shared stop's
   list can show the same route to the same place more than once (an earlier
   and a later departure), and keying on just those would arm or track every
-  one of them together instead of the one actually selected. scheduled_time
-  is included for exactly that: it's the one field that tells two same-route
-  departures apart and stays stable as a bus's eta counts down between
-  fetches, unlike eta_minutes itself.
+  one of them together instead of the one actually selected.
+
+  scheduled_time tells two same-route departures apart, but isn't exactly
+  stable for a live bus: `Foxbus.Adapters.Sources.CarouselScrapeSource`
+  computes it fresh each poll as now + the reported eta, which converges on
+  the bus's true arrival minute but normally ticks by about a minute every
+  time that eta itself ticks down — not just when the bus is genuinely
+  running late. Keyed on the exact minute, the bus_key would change on an
+  ordinary poll and silently drop the alarm. Rounded to the nearest
+  #{@bus_key_bucket_minutes} minutes instead, for enough slack to absorb
+  that normal drift.
   """
-  @spec bus_key(Arrival.t()) :: {String.t(), String.t(), Time.t() | nil}
+  @spec bus_key(Arrival.t()) :: {String.t(), String.t(), {0..23, 0..59} | nil}
+  def bus_key(%Arrival{line: line, destination: destination, scheduled_time: nil}),
+    do: {line, destination, nil}
+
   def bus_key(%Arrival{line: line, destination: destination, scheduled_time: scheduled_time}),
-    do: {line, destination, scheduled_time}
+    do: {line, destination, bucket_time(scheduled_time)}
+
+  defp bucket_time(%Time{hour: hour, minute: minute}) do
+    total = hour * 60 + minute
+
+    rounded =
+      total |> Kernel./(@bus_key_bucket_minutes) |> round() |> Kernel.*(@bus_key_bucket_minutes)
+
+    minutes_in_day = 24 * 60
+    rounded = Integer.mod(rounded, minutes_in_day)
+    {div(rounded, 60), rem(rounded, 60)}
+  end
 
   @doc """
   The splash: fox (already in the background) and the temperature — a dashed
