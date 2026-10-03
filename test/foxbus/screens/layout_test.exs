@@ -238,8 +238,15 @@ defmodule Foxbus.Screens.LayoutTest do
       assert icons.(:none) == []
     end
 
-    test "a bell belongs to a bus by line and destination" do
-      assert Layout.bus_key(arrival("105", 3)) == {"105", "x"}
+    test "a bell belongs to a bus by line, destination, and scheduled time" do
+      assert Layout.bus_key(arrival("105", 3)) == {"105", "x", nil}
+      assert Layout.bus_key(arrival("105", 3, :live, ~T[15:07:00])) == {"105", "x", ~T[15:07:00]}
+    end
+
+    test "two departures of the same route and destination get different keys" do
+      earlier = arrival("104", 11, :live, ~T[14:41:00])
+      later = arrival("104", 50, :live, ~T[15:39:00])
+      refute Layout.bus_key(earlier) == Layout.bus_key(later)
     end
   end
 

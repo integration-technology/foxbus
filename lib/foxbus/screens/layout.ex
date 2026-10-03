@@ -61,7 +61,7 @@ defmodule Foxbus.Screens.Layout do
 
   @type mode :: :list | {:soon, non_neg_integer} | {:arriving, non_neg_integer}
   @type bell :: :none | :armed | :silenced
-  @type bus_key :: {String.t(), String.t()}
+  @type bus_key :: {String.t(), String.t(), Time.t() | nil}
   @type selection :: %{index: non_neg_integer, armed: [bus_key]} | nil
 
   def blue, do: @blue
@@ -102,9 +102,19 @@ defmodule Foxbus.Screens.Layout do
   def chirping?({:arriving, _}, :armed), do: true
   def chirping?(_mode, _bell), do: false
 
-  @doc "Identifies a bus across fetches, so a bell follows the bus it was set for."
-  @spec bus_key(Arrival.t()) :: {String.t(), String.t()}
-  def bus_key(%Arrival{line: line, destination: destination}), do: {line, destination}
+  @doc """
+  Identifies one specific departure across fetches, so a bell follows the bus
+  it was set for. Line and destination alone aren't enough — a shared stop's
+  list can show the same route to the same place more than once (an earlier
+  and a later departure), and keying on just those would arm or track every
+  one of them together instead of the one actually selected. scheduled_time
+  is included for exactly that: it's the one field that tells two same-route
+  departures apart and stays stable as a bus's eta counts down between
+  fetches, unlike eta_minutes itself.
+  """
+  @spec bus_key(Arrival.t()) :: {String.t(), String.t(), Time.t() | nil}
+  def bus_key(%Arrival{line: line, destination: destination, scheduled_time: scheduled_time}),
+    do: {line, destination, scheduled_time}
 
   @doc """
   The splash: fox (already in the background) and the temperature — a dashed
@@ -300,6 +310,14 @@ defmodule Foxbus.Screens.Layout do
   defp multi_destination?(arrivals),
     do: arrivals |> Enum.map(& &1.destination) |> Enum.uniq() |> length() > 1
 
+  # Row text sizes were bumped up from the original 30/26/15 (Owain found
+  # the list hard to read without glasses) — unverified on the real device,
+  # like every pixel-exact choice here; expect another pass once there's a
+  # capture to check nothing's crowded or run off the safe circle.
+  @row_size 36
+  @multi_dest_row_size 30
+  @multi_dest_destination_size 18
+
   defp body_rows(arrivals, selection) do
     rows = Enum.take(arrivals, @max_rows)
 
@@ -308,7 +326,7 @@ defmodule Foxbus.Screens.Layout do
       |> Enum.with_index()
       |> Enum.map(fn {a, i} ->
         {:text, 160, @row_y + i * @row_gap, row_label(a, i, selection),
-         text_opts(30, row_color(a, i, selection), @dark)}
+         text_opts(@row_size, row_color(a, i, selection), @dark)}
       end)
 
     ops ++ add_row_bells(rows, selection, @row_y, @row_gap)
@@ -325,8 +343,11 @@ defmodule Foxbus.Screens.Layout do
 
         [
           {:text, 160, y, row_label(a, i, selection),
-           text_opts(26, row_color(a, i, selection), @dark)},
-          {:text, 160, y + 24, truncate(a.destination, 24), text_opts(15, @dim, @dark)}
+           text_opts(@multi_dest_row_size, row_color(a, i, selection), @dark)},
+          # Shrunk from 24 to 20 chars to match the bigger font — a
+          # proportional guess, also unverified.
+          {:text, 160, y + 24, truncate(a.destination, 20),
+           text_opts(@multi_dest_destination_size, @dim, @dark)}
         ]
       end)
 
