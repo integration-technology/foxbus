@@ -40,9 +40,14 @@ code as affected by a notice, the screen turns red with the direction and the
 notice's explanation — no countdown, since there's no real bus behind it. The
 screen wakes on the dial or when someone walks up, and sleeps after 30 seconds.
 
-No alarm sounds by default: pressing the dial on a stop screen arms its next
-bus, and the bell starts chirping once that bus is 5 minutes or less away —
-pressing again mutes it. If a line has an active disruption notice that names
+No alarm sounds by default. On a stop's countdown screen (10 minutes or
+less), pressing the dial arms its next bus, and the bell starts chirping
+once that bus is 5 minutes or less away — pressing again mutes it. On the
+plain list (more than 10 minutes out), pressing the dial instead selects a
+row — the dial then moves a highlight between the listed buses, and pressing
+again arms (or disarms) that specific one, wherever it is in the list; an
+armed row keeps a small bell next to it. ~20 s of no interaction returns to
+normal dial navigation. If a line has an active disruption notice that names
 this stop specifically, a short line of the notice's own title shows below
 the countdown; a notice naming other stops on the same line doesn't show
 here.
