@@ -5,15 +5,15 @@ defmodule Foxbus.DisruptionsTest do
   defmodule TestSource do
     @behaviour Foxbus.Ports.DisruptionsSource
     @impl true
-    def disrupted?(["fail"]), do: {:error, :timeout}
-    def disrupted?(lines), do: {:ok, "105" in lines}
+    def disrupted?(["fail"], _atco_code), do: {:error, :timeout}
+    def disrupted?(lines, _atco_code), do: {:ok, "105" in lines}
   end
 
   defmodule TestSink do
     @behaviour Foxbus.Ports.DisruptionsSink
     @impl true
-    def publish(disrupted?) do
-      send(self(), {:published, disrupted?})
+    def publish_disruption(stop, disrupted?) do
+      send(self(), {:published, stop, disrupted?})
       :ok
     end
   end
@@ -33,22 +33,26 @@ defmodule Foxbus.DisruptionsTest do
   end
 
   test "checks and publishes" do
-    assert {:ok, true} = Foxbus.Disruptions.check_and_publish(["105"])
-    assert_received {:published, true}
+    assert {:ok, true} = Foxbus.Disruptions.check_and_publish(:towards_uxbridge, ["105"], "atco")
+    assert_received {:published, :towards_uxbridge, true}
   end
 
   test "true if any of several lines matches" do
-    assert {:ok, true} = Foxbus.Disruptions.check_and_publish(["1", "105"])
-    assert_received {:published, true}
+    assert {:ok, true} =
+             Foxbus.Disruptions.check_and_publish(:towards_uxbridge, ["1", "105"], "atco")
+
+    assert_received {:published, :towards_uxbridge, true}
   end
 
   test "false is published too" do
-    assert {:ok, false} = Foxbus.Disruptions.check_and_publish(["1"])
-    assert_received {:published, false}
+    assert {:ok, false} = Foxbus.Disruptions.check_and_publish(:towards_uxbridge, ["1"], "atco")
+    assert_received {:published, :towards_uxbridge, false}
   end
 
   test "errors are returned and nothing is published" do
-    assert {:error, :timeout} = Foxbus.Disruptions.check_and_publish(["fail"])
-    refute_received {:published, _}
+    assert {:error, :timeout} =
+             Foxbus.Disruptions.check_and_publish(:towards_uxbridge, ["fail"], "atco")
+
+    refute_received {:published, _, _}
   end
 end

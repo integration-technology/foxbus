@@ -20,22 +20,28 @@ end
 defmodule Foxbus.Ports.DisruptionsSource do
   @moduledoc """
   Inbound port: anything that can answer "is any of these lines disrupted
-  right now, and if so what does the notice say?" Takes a list (not one
-  line) so an adapter backed by a single page fetch (like Carousel's) can
-  answer for every watched line from one request, rather than being called
-  once per line.
+  right now at this stop, and if so what does the notice say?" Takes a list
+  of lines (not one) so an adapter backed by a single page fetch (like
+  Carousel's) can answer for every watched line from one request, rather
+  than being called once per line. Takes one stop's ATCO code, since a
+  notice naming specific affected stops shouldn't show on a stop it doesn't
+  name — see `Foxbus.Adapters.Sources.CarouselDisruptionsSource`.
   """
 
-  @callback disrupted?(lines :: [String.t()]) :: {:ok, String.t() | nil} | {:error, term}
+  @callback disrupted?(lines :: [String.t()], atco_code :: String.t()) ::
+              {:ok, String.t() | nil} | {:error, term}
 end
 
 defmodule Foxbus.Ports.DisruptionsSink do
   @moduledoc """
-  Outbound port: anything that shows a line's disruption status (or clears
-  it) — the Nest's screens here.
+  Outbound port: anything that shows a stop's disruption status (or clears
+  it) — the Nest's screens here. Named publish_disruption/2, not publish/2,
+  so it doesn't collide with ArrivalsSink's publish/2 in a module
+  implementing both.
   """
 
-  @callback publish(explanation :: String.t() | nil) :: :ok | {:error, term}
+  @callback publish_disruption(stop :: atom, explanation :: String.t() | nil) ::
+              :ok | {:error, term}
 end
 
 defmodule Foxbus.Ports.StopClosureSource do

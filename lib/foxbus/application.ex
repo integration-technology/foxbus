@@ -19,8 +19,15 @@ defmodule Foxbus.Application do
 
     lines = Foxbus.Config.lines()
 
+    disruption_pollers =
+      for {stop, stop_id, _title} <- stops do
+        Supervisor.child_spec({DisruptionPoller, {stop, stop_id, lines}},
+          id: {:disruption_poller, stop}
+        )
+      end
+
     children =
-      [Foxbus.Screens] ++ bus_pollers ++ closure_pollers ++ [{DisruptionPoller, lines}]
+      [Foxbus.Screens] ++ bus_pollers ++ closure_pollers ++ disruption_pollers
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Foxbus.Supervisor)
   end

@@ -3,5 +3,5 @@ defmodule Foxbus.Adapters.Sources.StubDisruptionsSource do
   @behaviour Foxbus.Ports.DisruptionsSource
 
   @impl true
-  def disrupted?(_lines), do: {:ok, nil}
+  def disrupted?(_lines, _atco_code), do: {:ok, nil}
 end
