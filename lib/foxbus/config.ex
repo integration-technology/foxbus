@@ -14,8 +14,8 @@ defmodule Foxbus.Config do
         lines: ["104"],
         default_screen: :towards_somewhere,
         stops: [
-          {:towards_somewhere, "000000000001", "To Riverside"},
-          {:towards_elsewhere, "000000000002", "To High Hilltown"}
+          {:towards_somewhere, "000000000001", "To Somewhere"},
+          {:towards_elsewhere, "000000000002", "To Elsewhere"}
         ]
       ]
 
@@ -24,10 +24,10 @@ defmodule Foxbus.Config do
   `:splash` when unset, matching foxbus's original behaviour.
 
   `lines` is a list, not a single line, on purpose: a stop can be served by
-  more than one route (Fenwick, for instance, sees 102, 103, 104 and 105
-  together), and `Foxbus.Arrivals` filters the scraped board down to just
-  these lines — listing several here shows all of them, interleaved by time,
-  rather than just the one route the board happens to mention first.
+  more than one route, and `Foxbus.Arrivals` filters the scraped board down
+  to just these lines — listing several here shows all of them, interleaved
+  by time, rather than just the one route the board happens to mention
+  first.
   """
 
   @spec stops() :: [{atom, String.t(), String.t()}]

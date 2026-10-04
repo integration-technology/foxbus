@@ -19,13 +19,11 @@ back, with Nest's own click. By default (see "Changing the route or stops" below
 for overriding this):
 
 1. **Splash** — the fox on the blue disc and the room temperature.
-2. **To Riverside** — the next 104s and 105s at Carousel stop `000000000001`.
-3. **To High Hilltown** — the next 104s and 105s at Carousel stop `000000000002`.
+2. **To Somewhere** — the next 104s at Carousel stop `000000000001`.
+3. **To Elsewhere** — the next 104s at Carousel stop `000000000002`.
 
-This is currently Fenwick rather than the project's usual Oakdale stops
-(`000000000003`/`000000000004`) — Oakdale is closed by a Carousel notice
-until Tuesday, so the default is pointed at Fenwick meanwhile. Revert
-`mix.exs`'s `stops`/`lines` once 105 is back to normal there.
+These are placeholder stops — see "Run foxbus on your own Nest" below for
+pointing them at real ones.
 
 A stop screen says "Checking times" until its first stop-closure check has
 come back — this happens on every boot — rather than risk showing a
@@ -75,7 +73,7 @@ the Nest the app starts from plain `erl`, which never reads `config/*.exs`.
 
 ## Run foxbus on your own Nest
 
-foxbus as cloned shows one particular person's stops. To point it at yours:
+foxbus as cloned shows placeholder stops. To point it at your own:
 
 **1. Find your stops' ATCO codes.** foxbus only talks to
 [Carousel Buses'](https://www.carouselbuses.co.uk) own departure boards

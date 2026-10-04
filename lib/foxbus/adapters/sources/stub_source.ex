@@ -11,7 +11,7 @@ defmodule Foxbus.Adapters.Sources.StubSource do
     {:ok,
      for {line, destination, minutes, status} <- [
            {"105", "Mapleton Broadway", 4, :live},
-           {"1", "High Hilltown", 17, :scheduled},
+           {"1", "Hilltown", 17, :scheduled},
            {"105", "Mapleton + Thornbury", 42, :scheduled}
          ] do
        due = NaiveDateTime.add(now, minutes * 60, :second)

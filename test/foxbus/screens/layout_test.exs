@@ -87,16 +87,16 @@ defmodule Foxbus.Screens.LayoutTest do
       ops =
         Layout.stop("To Riverside", [
           arrival_to("104", 11, "Riverside"),
-          arrival_to("105", 18, "High Hilltown")
+          arrival_to("105", 18, "Hilltown")
         ])
 
       # The title is dropped, not just supplemented: "To Riverside" would
-      # contradict the second row, which goes to High Hilltown.
+      # contradict the second row, which goes to Hilltown.
       assert texts(ops) == [
                "104  11 min",
                "Riverside",
                "105  18 min",
-               "High Hilltown"
+               "Hilltown"
              ]
     end
 

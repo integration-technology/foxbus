@@ -36,7 +36,7 @@ defmodule Foxbus.Adapters.Sources.CarouselScrapeSourceTest do
   test "a scheduled clock time gets minutes until it" do
     html =
       page([
-        "Service - 1. Destination - High Hilltown. Departure time - 15:22. Departure 4 of 7. Scheduled."
+        "Service - 1. Destination - Hilltown. Departure time - 15:22. Departure 4 of 7. Scheduled."
       ])
 
     assert [a] = CarouselScrapeSource.parse_html(html, @now)

@@ -35,19 +35,18 @@ defmodule Foxbus.MixProject do
       extra_applications: [:logger, :inets, :ssl],
       mod: {Foxbus.Application, []},
       env: [
-        # TEMPORARY: Oakdale (000000000003/2) is closed by a Carousel notice
-        # until Tuesday (see the live "Service 105 Disruption" affecting these
-        # exact stops) — pointed at Fenwick instead meanwhile, a stop pair
-        # verified clear of any current closure notice. Revert to Oakdale
-        # once 105 is back to normal.
+        # Placeholder stops — see the README's "Run foxbus on your own Nest"
+        # for finding your own ATCO codes and pointing these at them (either
+        # here, or at runtime without a rebuild via Foxbus.Config).
         stops: [
-          {:towards_somewhere, "000000000001", "To Riverside"},
-          {:towards_elsewhere, "000000000002", "To High Hilltown"}
+          {:towards_somewhere, "000000000001", "To Somewhere"},
+          {:towards_elsewhere, "000000000002", "To Elsewhere"}
         ],
         arrivals_source: Foxbus.Adapters.Sources.CarouselScrapeSource,
         arrivals_sink: Foxbus.Adapters.Sinks.ScreensSink,
-        # Fenwick is shared with 102/103 too; watching both 104 and 105 shows
-        # them interleaved and filters the other two off the board.
+        # A shared stop can be served by more than one route — list them all
+        # here and they're interleaved by time; Foxbus.Arrivals filters the
+        # scraped board down to just these lines.
         lines: ["104", "105"],
         disruptions_source: Foxbus.Adapters.Sources.CarouselDisruptionsSource,
         disruptions_sink: Foxbus.Adapters.Sinks.ScreensSink,

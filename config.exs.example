@@ -5,19 +5,17 @@
 # edit it there. No rebuild needed: restart the app (app_watchdog.sh or
 # kill -TERM 1) to pick up changes.
 #
-# Example below points at the Fenwick stops instead of 105's Oakdale ones,
-# for testing while 105 is out. Fenwick is a shared stop — 102, 103, 104 and
-# 105 all call there — so `lines` lists both routes we actually want shown;
-# Foxbus.Arrivals filters the scraped board down to just these, interleaved
-# by time, and drops 102/103 from the display entirely. A single-element
-# list (e.g. ["104"]) works the same way for one route.
-# Verified clear of any current closure notice as of writing this file.
+# Placeholder stops below — see the README's "Run foxbus on your own Nest"
+# for finding your own ATCO codes. A shared stop can be served by more than
+# one route: list them all in `lines` and they're interleaved by time, with
+# Foxbus.Arrivals filtering the scraped board down to just these. A
+# single-element list (e.g. ["104"]) works the same way for one route.
 
 [
-  lines: ["104", "105"],
+  lines: ["104"],
   default_screen: :towards_somewhere,
   stops: [
-    {:towards_somewhere, "000000000001", "To Riverside"},
-    {:towards_elsewhere, "000000000002", "To High Hilltown"}
+    {:towards_somewhere, "000000000001", "To Somewhere"},
+    {:towards_elsewhere, "000000000002", "To Elsewhere"}
   ]
 ]
