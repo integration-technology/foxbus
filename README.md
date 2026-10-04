@@ -73,6 +73,60 @@ curl.se, MPL-2.0), since the Nest has no general certificate store.
 Settings (the stops, adapters, dial step) are in `mix.exs` under `env`, because on
 the Nest the app starts from plain `erl`, which never reads `config/*.exs`.
 
+## Run foxbus on your own Nest
+
+foxbus as cloned shows one particular person's stops. To point it at yours:
+
+**1. Find your stops' ATCO codes.** foxbus only talks to
+[Carousel Buses'](https://www.carouselbuses.co.uk) own departure boards
+(`Foxbus.Adapters.Sources.CarouselScrapeSource` and the disruption/closure
+sources alongside it all hardcode `carouselbuses.co.uk`) — it doesn't yet
+support other operators or a general journey-planner API. If Carousel
+doesn't serve your stop, foxbus won't show anything for it. Each stop is
+identified by its ATCO code (the standard UK bus-stop identifier, e.g.
+`040000001207`), which you can look up by name on
+[bustimes.org](https://bustimes.org) — it's in the stop's own URL there.
+Confirm Carousel actually publishes live times for it by visiting
+`https://www.carouselbuses.co.uk/stops/<the-code>` in a browser before
+configuring foxbus: a working departure board means it'll work; nothing
+there means Carousel doesn't serve that stop.
+
+**2. Put the codes, names, and route(s) into config.** Two ways, same shape:
+
+- At runtime, no rebuild — see "Changing the route or stops without a
+  rebuild" below. This is the easier way to try a stop before committing to
+  it.
+- Compiled in, as `mix.exs`'s own defaults (so a bare `deploy_app.sh` with
+  no runtime override file still shows the right thing) — edit the `stops`,
+  `lines`, and (if you want one direction to show by default) matching
+  `Foxbus.Config.default_screen/0` fallback in `mix.exs`'s `env`.
+
+Either way, the shape is:
+
+```elixir
+stops: [
+  {:towards_somewhere, "<your-stop-1-atco-code>", "To Somewhere"},
+  {:towards_elsewhere, "<your-stop-2-atco-code>", "To Elsewhere"}
+],
+lines: ["<route-number>"]
+```
+
+`:towards_somewhere`/`:towards_elsewhere` are just atoms you pick to name
+each screen internally — they can be anything, and aren't shown on screen.
+The ATCO codes and the `"To Somewhere"` title text are the parts that are
+actually about your stops; replace both, along with `lines` (the route
+number(s) to watch at that stop — a list, since a shared stop can see more
+than one route; see `Foxbus.Config`'s moduledoc). One stop works too, with
+a single `{atom, code, title}` tuple.
+
+**3. Deploy.** From the SDK folder, with foxbus cloned alongside it:
+
+```sh
+platform/deploy_app.sh ../foxbus
+```
+
+See "Deploy" below for what this does, including on a fresh Nest.
+
 ## Changing the route or stops without a rebuild
 
 The line, the two stops, and which one shows by default can be overridden at
@@ -122,13 +176,16 @@ MIX_ENV=prod mix compile
 ## Deploy
 
 ```sh
-../nest_gen2_sdk/platform/deploy_app.sh . [--no-test]
+../nest_gen2_sdk/platform/deploy_app.sh . [--no-test] [--sdk]
 ```
 
 Runs the tests and a prod build, checks foxbus was built against the same
-`nest_gen2` version installed on the Nest (refusing on a mismatch), uploads
-foxbus and its other dependencies (never the SDK itself) to the device, and
-restarts it.
+`nest_gen2` version installed on the Nest (refusing on a mismatch, unless
+`--sdk` is given — that installs foxbus's version, replacing whatever's
+there), uploads foxbus and its other dependencies to the device, and
+restarts it. The first deploy to a fresh Nest always installs the SDK too,
+`--sdk` or not. `--no-test` skips `mix test`; both flags work in either
+order.
 
 ## Assets
 
