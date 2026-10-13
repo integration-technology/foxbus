@@ -18,12 +18,13 @@ defmodule Foxbus.MixProject do
   end
 
   # The SDK from Hex, or a local path for co-development (set NEST_GEN2_PATH
-  # when working on both repos at once). "~> 0.2.0", not "~> 0.2" — the
-  # trailing .0 matters, since "~> 0.2" alone would also allow a breaking 0.3
-  # before 1.0.
+  # when working on both repos at once). "~> 0.3.0", not "~> 0.3" — the
+  # trailing .0 matters, since "~> 0.3" alone would also allow a breaking 0.4
+  # before 1.0. 0.3.0 adds NestGen2.Storage, which Foxbus.Config and
+  # Foxbus.ScreenPower are now built on.
   defp nest_gen2_dep do
     case System.get_env("NEST_GEN2_PATH") do
-      nil -> {:nest_gen2, "~> 0.2.0"}
+      nil -> {:nest_gen2, "~> 0.3.0"}
       path -> {:nest_gen2, path: path}
     end
   end
@@ -37,7 +38,8 @@ defmodule Foxbus.MixProject do
       env: [
         # Placeholder stops — see the README's "Run foxbus on your own Nest"
         # for finding your own ATCO codes and pointing these at them (either
-        # here, or at runtime without a rebuild via Foxbus.Config).
+        # here, or at runtime without a rebuild or redeploy, via
+        # Foxbus.Config / platform/storage.sh).
         stops: [
           {:towards_somewhere, "000000000001", "To Somewhere"},
           {:towards_elsewhere, "000000000002", "To Elsewhere"}
@@ -54,11 +56,15 @@ defmodule Foxbus.MixProject do
         stop_closure_sink: Foxbus.Adapters.Sinks.ScreensSink,
         wifi_source: Foxbus.Adapters.Sources.NestGen2WifiSource,
         assets_dir: "/media/scratch/.nest_gen2_sdk/foxbus",
-        # Runtime override file (route, stops, default screen) — see
-        # Foxbus.Config. nil means "config.exs next to assets_dir".
+        # Pre-0.3.0 config file, only consulted once by
+        # Foxbus.Config.migrate_from_file/0 to carry an existing install's
+        # values into NestGen2.Storage. nil means "config.exs next to
+        # assets_dir". The live route/stops now live in Storage — see
+        # platform/storage.sh.
         config_path: nil,
-        # Saved screen sleep/wake choice — see Foxbus.ScreenPower. nil means
-        # "screen_power.exs next to assets_dir".
+        # Pre-0.3.0 screen-power file, same deal — see
+        # Foxbus.ScreenPower.migrate_from_file/0. nil means "screen_power.exs
+        # next to assets_dir".
         screen_power_path: nil,
         screen_step_degrees: 45
       ]

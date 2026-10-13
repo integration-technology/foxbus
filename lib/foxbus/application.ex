@@ -5,6 +5,13 @@ defmodule Foxbus.Application do
 
   @impl true
   def start(_type, _args) do
+    # One-time carry-over from the pre-0.3.0 config.exs/screen_power.exs
+    # files into NestGen2.Storage, for an existing install — no-ops once
+    # Storage already has the values. See Foxbus.Config and
+    # Foxbus.ScreenPower's moduledocs.
+    Foxbus.Config.migrate_from_file()
+    Foxbus.ScreenPower.migrate_from_file()
+
     # NestGen2.Power always starts from its own defaults — put back whatever
     # was last saved from the settings UI, if anything (see Foxbus.ScreenPower).
     Foxbus.ScreenPower.apply_saved()

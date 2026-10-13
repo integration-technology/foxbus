@@ -1,9 +1,14 @@
-# Runtime override for foxbus's route and stops — see Foxbus.Config.
+# Pre-0.3.0 runtime override for foxbus's route and stops — see
+# Foxbus.Config. Current installs should use `platform/storage.sh foxbus
+# put stops|lines|default_screen ...` instead (see the README's "Changing
+# the route or stops without a rebuild"); this file format only still
+# matters for Foxbus.Config.migrate_from_file/0 carrying an old one's
+# values into NestGen2.Storage, once, at the first boot after upgrading.
 #
-# Copy this file to config.exs next to the other device assets
-# (mix.exs' :assets_dir, normally /media/scratch/.nest_gen2_sdk/foxbus/) and
-# edit it there. No rebuild needed: restart the app (app_watchdog.sh or
-# kill -TERM 1) to pick up changes.
+# If you do still need it: copy this file to config.exs next to the other
+# device assets (mix.exs' :assets_dir, normally
+# /media/scratch/.nest_gen2_sdk/foxbus/) and edit it there, then restart the
+# app (app_watchdog.sh or kill -TERM 1) to migrate it.
 #
 # Placeholder stops below — see the README's "Run foxbus on your own Nest"
 # for finding your own ATCO codes. A shared stop can be served by more than

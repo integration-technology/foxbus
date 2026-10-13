@@ -95,7 +95,7 @@ there means Carousel doesn't serve that stop.
   rebuild" below. This is the easier way to try a stop before committing to
   it.
 - Compiled in, as `mix.exs`'s own defaults (so a bare `deploy_app.sh` with
-  no runtime override file still shows the right thing) — edit the `stops`,
+  no Storage override set still shows the right thing) — edit the `stops`,
   `lines`, and (if you want one direction to show by default) matching
   `Foxbus.Config.default_screen/0` fallback in `mix.exs`'s `env`.
 
@@ -128,13 +128,27 @@ See "Deploy" below for what this does, including on a fresh Nest.
 ## Changing the route or stops without a rebuild
 
 The line, the two stops, and which one shows by default can be overridden at
-runtime by `Foxbus.Config`, which reads a plain `.exs` file on disk — by
-default `config.exs` next to the other device assets (`assets_dir`, normally
-`/media/scratch/.nest_gen2_sdk/foxbus/`). Copy `config.exs.example` there,
-edit it, and restart the app (`app_watchdog.sh` or `kill -TERM 1`) — no
-recompile or redeploy needed. A missing file, or a key it doesn't set, falls
-back to mix.exs' compiled `env`; a malformed file is ignored rather than
-stopping the app from booting.
+runtime by `Foxbus.Config`, which reads them from `NestGen2.Storage` — set
+from your computer, no recompile or redeploy needed. They're only read once,
+at start (the pollers are built from them then), so still need the app
+restarted (`app_watchdog.sh` or `kill -TERM 1`) to take effect:
+
+```sh
+../nest_gen2_sdk/platform/storage.sh foxbus put stops '[{:towards_somewhere, "<code>", "To Somewhere"}, {:towards_elsewhere, "<code>", "To Elsewhere"}]'
+../nest_gen2_sdk/platform/storage.sh foxbus put lines '["104"]'
+../nest_gen2_sdk/platform/storage.sh foxbus put default_screen ':towards_somewhere'
+```
+
+A key Storage doesn't have falls back to mix.exs' compiled `env`
+(`default_screen` to `:splash`); `platform/storage.sh foxbus delete <key>`
+removes an override to go back to that. `platform/storage.sh foxbus list`
+shows what's currently set.
+
+Before nest_gen2 0.3.0 this was a hand-edited `config.exs` file
+(`config.exs.example` was its template). `Foxbus.Config.migrate_from_file/0`
+carries an existing one's values into Storage once, at the next boot after
+upgrading, then leaves the old file alone — nothing needs doing by hand to
+keep an existing install's route and stops.
 
 ## Wi-Fi settings
 
@@ -156,7 +170,7 @@ and whether it wakes when someone approaches ("Wake on approach"). Each row
 is picked with the dial and cycled in place with a press — no further
 screen to drill into. The dial and button always wake the screen; there's
 no way to turn that off, since with wake-on-approach also off there'd be no
-way back short of a reboot. The choice is saved to disk (see
+way back short of a reboot. The choice is saved to `NestGen2.Storage` (see
 `Foxbus.ScreenPower`) and re-applied on every boot, since `NestGen2.Power`
 itself always starts from its own defaults (30 s, every wake source).
 
