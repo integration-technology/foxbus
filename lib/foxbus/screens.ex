@@ -236,10 +236,11 @@ defmodule Foxbus.Screens do
   def handle_info(:settings_idle_timeout, state),
     do: {:noreply, state |> close_settings() |> render()}
 
-  def handle_info(:settings_result_timeout, %{settings: %{screen: :result} = s} = state),
-    do:
-      {:noreply,
-       %{state | settings: %{s | screen: :menu}, settings_result_timer: nil} |> render()}
+  def handle_info(:settings_result_timeout, %{settings: %{screen: screen} = s} = state)
+      when screen in [:result, :save_result],
+      do:
+        {:noreply,
+         %{state | settings: %{s | screen: :menu}, settings_result_timer: nil} |> render()}
 
   def handle_info(:settings_result_timeout, state), do: {:noreply, state}
 
@@ -399,10 +400,23 @@ defmodule Foxbus.Screens do
   end
 
   # Unlike scan/connect, applying a screen-power choice is just two Power
-  # calls plus a small file write+sync — fast and synchronous, no Task.
+  # calls plus a small Storage write — fast and synchronous, no Task.
   defp handle_settings_effect({:screen_power, choice}, state) do
     Foxbus.ScreenPower.apply(choice)
     {:noreply, render(state)}
+  end
+
+  # Unlike connect/2, save/2 doesn't attempt a join or wait for DHCP — fast
+  # and synchronous, no Task; the result is reported inline rather than via
+  # the {ref, result}/:DOWN handlers below, which only ever see a Task's.
+  defp handle_settings_effect({:save, ssid, password}, state) do
+    result = wifi_source().save(ssid, password)
+    new_settings = Settings.save_result(state.settings, ssid, result)
+
+    %{state | settings: new_settings}
+    |> maybe_start_result_timer(new_settings)
+    |> render()
+    |> then(&{:noreply, &1})
   end
 
   defp apply_task_result(state, result) do
@@ -417,12 +431,18 @@ defmodule Foxbus.Screens do
     |> render()
   end
 
-  defp maybe_start_result_timer(state, %{screen: :result, connect_result: {:ok, _}}) do
+  defp maybe_start_result_timer(state, %{screen: :result, connect_result: {:ok, _}}),
+    do: start_result_timer(state)
+
+  defp maybe_start_result_timer(state, %{screen: :save_result, save_result: {_ssid, :ok}}),
+    do: start_result_timer(state)
+
+  defp maybe_start_result_timer(state, _settings), do: state
+
+  defp start_result_timer(state) do
     timer = Process.send_after(self(), :settings_result_timeout, @settings_result_ms)
     %{state | settings_result_timer: timer}
   end
-
-  defp maybe_start_result_timer(state, _settings), do: state
 
   defp wifi_source, do: Application.fetch_env!(:foxbus, :wifi_source)
 

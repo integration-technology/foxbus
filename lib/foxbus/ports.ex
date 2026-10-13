@@ -66,14 +66,16 @@ end
 
 defmodule Foxbus.Ports.WifiSource do
   @moduledoc """
-  Inbound port: Wi-Fi status, scanning, and connecting. Backed by
-  `NestGen2.Wifi` (nest_gen2 >= 0.2.0) in production, or a fake for
-  developing and testing the settings screens without it.
+  Inbound port: Wi-Fi status, scanning, connecting, and saving a network for
+  later. Backed by `NestGen2.Wifi` (nest_gen2 >= 0.2.0; `save/2` needs
+  >= 0.3.0) in production, or a fake for developing and testing the
+  settings screens without it.
 
   `scan/0` and `connect/2` are expected to block for several seconds to tens
   of seconds — callers (see `Foxbus.Screens.Settings`) must run them in a
   `Task`, never directly from `Foxbus.Screens`' `handle_*`, or the whole
-  display freezes until they return.
+  display freezes until they return. `save/2` is quick (no join attempt, no
+  DHCP wait) and is called directly, no `Task`.
   """
 
   @type status :: %{
@@ -92,4 +94,6 @@ defmodule Foxbus.Ports.WifiSource do
               | {:error, :wrong_password | :not_found | :no_ip | :timeout | term}
   @callback saved_networks() :: [String.t()]
   @callback forget(ssid :: String.t()) :: :ok | {:error, :not_found | :connected}
+  @callback save(ssid :: String.t(), password :: String.t() | nil) ::
+              :ok | {:error, :bad_password_length | :unavailable | term}
 end

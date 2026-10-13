@@ -8,8 +8,12 @@ defmodule Foxbus.Adapters.Sources.FakeWifiSource do
   enough to exercise `Foxbus.Screens.Settings`' screen flow and
   `Foxbus.Screens.SettingsLayout`'s rendering; not a real network simulation.
 
-  Password `"wrong"` always fails with `:wrong_password`; any other password
-  (including `nil`, for an open or already-saved network) succeeds.
+  Password `"wrong"` always fails `connect/2` with `:wrong_password`; any
+  other password (including `nil`, for an open or already-saved network)
+  succeeds. `save/2` fails with `:bad_password_length` for any password
+  outside 8–63 characters (matching the real constraint `NestGen2.Wifi.save/2`
+  enforces), `nil` always succeeds (an open network), anything else
+  succeeds.
   """
   @behaviour Foxbus.Ports.WifiSource
 
@@ -36,4 +40,9 @@ defmodule Foxbus.Adapters.Sources.FakeWifiSource do
   def forget(ssid) do
     if ssid in saved_networks(), do: :ok, else: {:error, :not_found}
   end
+
+  @impl true
+  def save(_ssid, nil), do: :ok
+  def save(_ssid, password) when byte_size(password) in 8..63, do: :ok
+  def save(_ssid, _password), do: {:error, :bad_password_length}
 end

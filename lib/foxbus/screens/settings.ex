@@ -11,28 +11,53 @@ defmodule Foxbus.Screens.Settings do
   seconds), performs it, and reports the result back with `scan_result/2` or
   `connect_result/2`.
 
-  Screens, in order: `:menu` -> `:scanning` -> `:networks` -> (`:password` if
-  the chosen network is secured and not already saved) -> `:connecting` ->
-  `:result`, with "Back"/cancel paths returning to `:menu` or `:networks`.
-  `:menu` -> `:screen_power` is a second branch, for the screen's own
-  sleep/wake behaviour (see `Foxbus.ScreenPower`) — two rows, "Screen" and
-  "Wake on approach", that a press cycles in place rather than drilling
-  further in; there's nothing to connect or scan for here, so no `effect`
-  beyond reporting the new choice for `Foxbus.Screens` to apply and save.
+  Screens, in order: `:menu` -> `:scanning` -> `:networks` -> `:network_action`
+  (picking a network offers "Join now" or "Save for later") -> (`:password`
+  if the chosen network is secured and not already saved, for either
+  action) -> `:connecting`/`:result` for Join, `:saving`/`:save_result` for
+  Save, with "Back"/cancel paths returning to `:menu` or `:networks`.
+  `pending_action` (`:connect` or `:save`) carries which of the two the
+  password screen is collecting a password for. `:menu` -> `:screen_power`
+  is a second branch, for the screen's own sleep/wake behaviour (see
+  `Foxbus.ScreenPower`) — two rows, "Screen" and "Wake on approach", that a
+  press cycles in place rather than drilling further in; there's nothing to
+  connect or scan for here, so no `effect` beyond reporting the new choice
+  for `Foxbus.Screens` to apply and save.
+
+  Saving is quick — no join attempt, no DHCP wait — so unlike `:connecting`,
+  `:saving` is never actually seen on screen: `Foxbus.Screens` performs the
+  `{:save, ssid, password}` effect inline, not in a `Task`, and reports the
+  result back (`save_result/3`) before the next render. It's still a real
+  screen in the state machine (not skipped entirely) so the shape stays the
+  same as the `:connecting`/`:result` pair, in case saving ever needs to
+  become asynchronous.
 
   Known simplification: no "Other…" (hidden SSID) entry on the networks
-  screen yet — the spec marks it optional. The password screen always shows
-  the last typed character unmasked rather than "for a second" — Screens
-  would need its own timer to un-mask-then-mask, which isn't built here.
+  screen yet — the spec marks it optional, and so does saving one not
+  currently in range (such as a phone hotspot that's usually off at home) —
+  both would need a way to type an SSID by hand, not just pick one off the
+  scan list. The password screen always shows the last typed character
+  unmasked rather than "for a second" — Screens would need its own timer to
+  un-mask-then-mask, which isn't built here.
   """
 
   alias Foxbus.Ports.WifiSource
 
   @type screen ::
-          :menu | :scanning | :networks | :password | :connecting | :result | :screen_power
+          :menu
+          | :scanning
+          | :networks
+          | :network_action
+          | :password
+          | :connecting
+          | :result
+          | :saving
+          | :save_result
+          | :screen_power
   @type wheel_group :: :upper | :lower | :digits | :symbols
   @type wheel_entry :: {:char, String.t()} | {:switch, wheel_group} | :delete | :done | :cancel
   @type idle_timeout :: pos_integer | :infinity
+  @type pending_action :: :connect | :save
 
   @type t :: %__MODULE__{
           screen: screen,
@@ -41,10 +66,12 @@ defmodule Foxbus.Screens.Settings do
           versions: %{foxbus: String.t(), sdk: String.t()},
           networks: [WifiSource.network()],
           selected_network: WifiSource.network() | nil,
+          pending_action: pending_action,
           password: String.t(),
           wheel_group: wheel_group,
           wheel_index: non_neg_integer,
           connect_result: {:ok, map} | {:error, term} | nil,
+          save_result: {String.t(), :ok | {:error, term}} | nil,
           idle_timeout_ms: idle_timeout,
           wake_on_approach?: boolean
         }
@@ -53,6 +80,7 @@ defmodule Foxbus.Screens.Settings do
           :exit_to_splash
           | :scan
           | {:connect, String.t(), String.t() | nil}
+          | {:save, String.t(), String.t() | nil}
           | {:screen_power, Foxbus.ScreenPower.t()}
           | nil
 
@@ -62,14 +90,17 @@ defmodule Foxbus.Screens.Settings do
             versions: %{foxbus: "", sdk: ""},
             networks: [],
             selected_network: nil,
+            pending_action: :connect,
             password: "",
             wheel_group: :upper,
             wheel_index: 0,
             connect_result: nil,
+            save_result: nil,
             idle_timeout_ms: 30_000,
             wake_on_approach?: true
 
   @menu_items [:change_wifi, :screen_power, :back]
+  @network_action_items [:join, :save, :back]
   @result_items [:retry, :back]
   @screen_power_items [:idle_timeout, :wake_on_approach, :back]
   @idle_timeout_options [30_000, 60_000, 300_000, :infinity]
@@ -109,6 +140,9 @@ defmodule Foxbus.Screens.Settings do
   def navigate(%{screen: :networks} = s, dir),
     do: move_highlight(s, dir, length(s.networks) + 1)
 
+  def navigate(%{screen: :network_action} = s, dir),
+    do: move_highlight(s, dir, length(@network_action_items))
+
   def navigate(%{screen: :password} = s, dir) do
     entries = wheel_entries(s.wheel_group)
     step = if dir == :cw, do: 1, else: -1
@@ -116,6 +150,9 @@ defmodule Foxbus.Screens.Settings do
   end
 
   def navigate(%{screen: :result, connect_result: {:error, _}} = s, dir),
+    do: move_highlight(s, dir, length(@result_items))
+
+  def navigate(%{screen: :save_result, save_result: {_ssid, {:error, _}}} = s, dir),
     do: move_highlight(s, dir, length(@result_items))
 
   def navigate(%{screen: :screen_power} = s, dir),
@@ -160,13 +197,15 @@ defmodule Foxbus.Screens.Settings do
 
       true ->
         network = Enum.at(s.networks, s.highlight)
-        s = %{s | selected_network: network}
+        {%{s | selected_network: network, screen: :network_action, highlight: 0}, nil}
+    end
+  end
 
-        if network.secured and not network.saved do
-          {%{s | screen: :password, password: "", wheel_group: :upper, wheel_index: 0}, nil}
-        else
-          {%{s | screen: :connecting}, {:connect, network.ssid, nil}}
-        end
+  def select(%{screen: :network_action} = s) do
+    case Enum.at(@network_action_items, s.highlight) do
+      :join -> start_action(s, :connect)
+      :save -> start_action(s, :save)
+      :back -> {%{s | screen: :networks, highlight: 0}, nil}
     end
   end
 
@@ -183,7 +222,7 @@ defmodule Foxbus.Screens.Settings do
 
       :done ->
         ssid = s.selected_network.ssid
-        {%{s | screen: :connecting}, {:connect, ssid, s.password}}
+        finish_action(s, s.pending_action, ssid, s.password)
 
       :cancel ->
         {%{s | screen: :networks, highlight: 0}, nil}
@@ -192,24 +231,53 @@ defmodule Foxbus.Screens.Settings do
 
   def select(%{screen: :scanning} = s), do: {s, nil}
   def select(%{screen: :connecting} = s), do: {s, nil}
+  def select(%{screen: :saving} = s), do: {s, nil}
 
   def select(%{screen: :result, connect_result: {:ok, _}} = s), do: {%{s | screen: :menu}, nil}
 
   def select(%{screen: :result, connect_result: {:error, _}} = s) do
     case Enum.at(@result_items, s.highlight) do
-      :back ->
-        {%{s | screen: :networks, highlight: 0}, nil}
-
-      :retry ->
-        network = s.selected_network
-
-        if network.secured and not network.saved do
-          {%{s | screen: :password, password: "", wheel_group: :upper, wheel_index: 0}, nil}
-        else
-          {%{s | screen: :connecting}, {:connect, network.ssid, nil}}
-        end
+      :back -> {%{s | screen: :networks, highlight: 0}, nil}
+      :retry -> start_action(s, :connect)
     end
   end
+
+  def select(%{screen: :save_result, save_result: {_ssid, :ok}} = s),
+    do: {%{s | screen: :menu}, nil}
+
+  def select(%{screen: :save_result, save_result: {_ssid, {:error, _}}} = s) do
+    case Enum.at(@result_items, s.highlight) do
+      :back -> {%{s | screen: :networks, highlight: 0}, nil}
+      :retry -> start_action(s, :save)
+    end
+  end
+
+  # Shared by :networks ("Join now"/"Save for later") and both results'
+  # "Retry": either goes straight to the effect (open, or already saved —
+  # nothing more to ask), or to the password screen first, remembering
+  # which action it's collecting a password for.
+  defp start_action(s, action) do
+    network = s.selected_network
+
+    if network.secured and not network.saved do
+      {%{
+         s
+         | screen: :password,
+           pending_action: action,
+           password: "",
+           wheel_group: :upper,
+           wheel_index: 0
+       }, nil}
+    else
+      finish_action(s, action, network.ssid, nil)
+    end
+  end
+
+  defp finish_action(s, :connect, ssid, password),
+    do: {%{s | screen: :connecting}, {:connect, ssid, password}}
+
+  defp finish_action(s, :save, ssid, password),
+    do: {%{s | screen: :saving}, {:save, ssid, password}}
 
   @doc "A scan Task finished — moves to the networks screen either way."
   @spec scan_result(t, {:ok, [WifiSource.network()]} | {:error, term}) :: t
@@ -221,6 +289,15 @@ defmodule Foxbus.Screens.Settings do
   @doc "A connect Task finished — moves to the result screen."
   @spec connect_result(t, {:ok, map} | {:error, term}) :: t
   def connect_result(s, result), do: %{s | screen: :result, connect_result: result, highlight: 0}
+
+  @doc """
+  A save attempt finished — moves to the save-result screen. Not a Task
+  result (see the moduledoc): `Foxbus.Screens` calls this right after
+  performing the `{:save, ssid, password}` effect inline.
+  """
+  @spec save_result(t, String.t(), :ok | {:error, term}) :: t
+  def save_result(s, ssid, result),
+    do: %{s | screen: :save_result, save_result: {ssid, result}, highlight: 0}
 
   @doc "The wheel's entries for a group: its characters, then the other groups' switches, then controls."
   @spec wheel_entries(wheel_group) :: [wheel_entry]

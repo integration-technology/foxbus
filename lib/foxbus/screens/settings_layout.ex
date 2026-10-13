@@ -40,9 +40,12 @@ defmodule Foxbus.Screens.SettingsLayout do
   def render(%Settings{screen: :menu} = s), do: menu(s)
   def render(%Settings{screen: :scanning}), do: scanning()
   def render(%Settings{screen: :networks} = s), do: networks(s)
+  def render(%Settings{screen: :network_action} = s), do: network_action(s)
   def render(%Settings{screen: :password} = s), do: password(s)
   def render(%Settings{screen: :connecting}), do: connecting()
   def render(%Settings{screen: :result} = s), do: result(s)
+  def render(%Settings{screen: :saving}), do: saving()
+  def render(%Settings{screen: :save_result} = s), do: save_result(s)
   def render(%Settings{screen: :screen_power} = s), do: screen_power(s)
 
   defp menu(s) do
@@ -157,6 +160,18 @@ defmodule Foxbus.Screens.SettingsLayout do
     highlight |> Kernel.-(1) |> max(0) |> min(max_start)
   end
 
+  defp network_action(s) do
+    ssid = Layout.truncate(s.selected_network.ssid, 20)
+
+    [
+      {:background, @dark},
+      {:text, 160, 50, ssid, text_opts(20, @white)},
+      menu_item("Join now", 120, s.highlight == 0),
+      menu_item("Save for later", 150, s.highlight == 1),
+      menu_item("Back", 180, s.highlight == 2)
+    ]
+  end
+
   # A device capture showed the whole row (SSID + lock/tick) drawn as one
   # string with font: :icons: the SSID came out blank with tofu boxes for its
   # underscores, since those characters aren't in the icon font at all. The
@@ -251,6 +266,39 @@ defmodule Foxbus.Screens.SettingsLayout do
     ssid = s.wifi_status.ssid || "the previous network"
     "Couldn't join; back on #{ssid}"
   end
+
+  # Never actually seen on screen in practice — Foxbus.Screens performs the
+  # save inline and reports the result before the next render — but kept as
+  # a real screen rather than skipped, matching :connecting/:result. See
+  # Foxbus.Screens.Settings' moduledoc.
+  defp saving do
+    [
+      {:background, @dark},
+      {:text, 160, 50, "Settings", text_opts(22, @white)},
+      {:text, 160, 150, "Saving…", text_opts(22, @dim)}
+    ]
+  end
+
+  defp save_result(%{save_result: {ssid, :ok}}) do
+    [
+      {:background, @green},
+      {:text, 160, 130, "Saved:", text_opts(20, @white, @green)},
+      {:text, 160, 160, Layout.truncate(ssid, 20), text_opts(24, @white, @green)}
+    ]
+  end
+
+  defp save_result(%{save_result: {_ssid, {:error, reason}}} = s) do
+    [
+      {:background, @red},
+      {:text, 160, 90, save_failure_text(reason), text_opts(20, @white, @red)},
+      result_item("Retry", 220, s.highlight == 0),
+      result_item("Back", 250, s.highlight == 1)
+    ]
+  end
+
+  defp save_failure_text(:bad_password_length), do: "Password must be 8-63 characters"
+  defp save_failure_text(:unavailable), do: "Wi-Fi unavailable"
+  defp save_failure_text(_reason), do: "Couldn't save"
 
   defp text_opts(size, color, background \\ @dark, align \\ :center),
     do: [size: size, color: color, background: background, align: align]

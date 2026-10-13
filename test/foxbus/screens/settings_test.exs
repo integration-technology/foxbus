@@ -174,23 +174,73 @@ defmodule Foxbus.Screens.SettingsTest do
       assert {%{screen: :menu, highlight: 0}, nil} = Settings.select(s)
     end
 
-    test "selecting an open network connects directly, no password screen" do
+    test "selecting a network goes to the network_action screen, not straight to connect" do
       s = at_networks([network("CoffeeShop", secured: false)])
+      assert {%{screen: :network_action, highlight: 0} = new_s, nil} = Settings.select(s)
+      assert new_s.selected_network.ssid == "CoffeeShop"
+    end
+  end
+
+  describe "network_action screen" do
+    defp at_network_action(network, highlight \\ 0) do
+      open()
+      |> Map.put(:screen, :network_action)
+      |> Map.put(:selected_network, network)
+      |> Map.put(:highlight, highlight)
+    end
+
+    test "turning moves between the three items and wraps" do
+      s = at_network_action(network("A"))
+      assert s.highlight == 0
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 1
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 2
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 0
+    end
+
+    test "Join now (highlight 0) on an open network connects directly" do
+      s = at_network_action(network("CoffeeShop", secured: false))
       assert {%{screen: :connecting}, {:connect, "CoffeeShop", nil}} = Settings.select(s)
     end
 
-    test "selecting an already-saved secured network connects directly" do
-      s = at_networks([network("HomeWifi", secured: true, saved: true)])
+    test "Join now on an already-saved secured network connects directly" do
+      s = at_network_action(network("HomeWifi", secured: true, saved: true))
       assert {%{screen: :connecting}, {:connect, "HomeWifi", nil}} = Settings.select(s)
     end
 
-    test "selecting a secured, unsaved network goes to the password screen" do
-      s = at_networks([network("Neighbour5G", secured: true, saved: false)])
+    test "Join now on a secured, unsaved network goes to the password screen" do
+      s = at_network_action(network("Neighbour5G", secured: true, saved: false))
 
-      assert {%{screen: :password, password: "", wheel_group: :upper} = new_s, nil} =
-               Settings.select(s)
+      assert {%{screen: :password, password: "", wheel_group: :upper, pending_action: :connect} =
+                new_s, nil} = Settings.select(s)
 
       assert new_s.selected_network.ssid == "Neighbour5G"
+    end
+
+    test "Save for later (highlight 1) on an open network saves directly" do
+      s = at_network_action(network("CoffeeShop", secured: false), 1)
+      assert {%{screen: :saving}, {:save, "CoffeeShop", nil}} = Settings.select(s)
+    end
+
+    test "Save for later on an already-saved secured network saves directly" do
+      s = at_network_action(network("HomeWifi", secured: true, saved: true), 1)
+      assert {%{screen: :saving}, {:save, "HomeWifi", nil}} = Settings.select(s)
+    end
+
+    test "Save for later on a secured, unsaved network goes to the password screen" do
+      s = at_network_action(network("Neighbour5G", secured: true, saved: false), 1)
+
+      assert {%{screen: :password, password: "", wheel_group: :upper, pending_action: :save} =
+                new_s, nil} = Settings.select(s)
+
+      assert new_s.selected_network.ssid == "Neighbour5G"
+    end
+
+    test "Back (highlight 2) returns to the networks list" do
+      s = at_network_action(network("A"), 2)
+      assert {%{screen: :networks, highlight: 0}, nil} = Settings.select(s)
     end
   end
 
@@ -265,6 +315,12 @@ defmodule Foxbus.Screens.SettingsTest do
       assert {%{screen: :connecting}, {:connect, "Neighbour5G", "letmein"}} = Settings.select(s)
     end
 
+    test "done asks the caller to save instead, when that's the pending action" do
+      done_index = Enum.find_index(Settings.wheel_entries(:upper), &(&1 == :done))
+      s = %{at_password() | password: "letmein", wheel_index: done_index, pending_action: :save}
+      assert {%{screen: :saving}, {:save, "Neighbour5G", "letmein"}} = Settings.select(s)
+    end
+
     test "cancel returns to the networks screen" do
       cancel_index = Enum.find_index(Settings.wheel_entries(:upper), &(&1 == :cancel))
       s = %{at_password() | wheel_index: cancel_index}
@@ -282,6 +338,13 @@ defmodule Foxbus.Screens.SettingsTest do
   describe "connecting screen" do
     test "button presses are ignored while connecting" do
       s = %{open() | screen: :connecting}
+      assert {^s, nil} = Settings.select(s)
+    end
+  end
+
+  describe "saving screen" do
+    test "button presses are ignored while saving" do
+      s = %{open() | screen: :saving}
       assert {^s, nil} = Settings.select(s)
     end
   end
@@ -347,6 +410,66 @@ defmodule Foxbus.Screens.SettingsTest do
         |> Settings.connect_result({:error, :timeout})
 
       assert {%{screen: :connecting}, {:connect, "CoffeeShop", nil}} = Settings.select(s)
+    end
+  end
+
+  describe "save_result/3 and the save-result screen" do
+    test "success moves to the save-result screen" do
+      s = %{open() | screen: :saving} |> Settings.save_result("A", :ok)
+
+      assert s.screen == :save_result
+      assert s.save_result == {"A", :ok}
+    end
+
+    test "selecting on a success result returns straight to the menu" do
+      s = %{open() | screen: :saving} |> Settings.save_result("A", :ok)
+      assert {%{screen: :menu}, nil} = Settings.select(s)
+    end
+
+    test "a failure result offers Retry and Back, turning between them" do
+      s =
+        %{open() | screen: :saving}
+        |> Settings.save_result("A", {:error, :bad_password_length})
+
+      assert s.highlight == 0
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 1
+      s = Settings.navigate(s, :cw)
+      assert s.highlight == 0
+    end
+
+    test "Back on a failure returns to the networks screen" do
+      s =
+        %{open() | screen: :saving, selected_network: network("Neighbour5G")}
+        |> Settings.save_result("Neighbour5G", {:error, :bad_password_length})
+        |> Map.put(:highlight, 1)
+
+      assert {%{screen: :networks, highlight: 0}, nil} = Settings.select(s)
+    end
+
+    test "Retry on a failed secured, unsaved network goes back to the password screen" do
+      s =
+        %{
+          open()
+          | screen: :saving,
+            selected_network: network("Neighbour5G", secured: true, saved: false)
+        }
+        |> Settings.save_result("Neighbour5G", {:error, :bad_password_length})
+
+      assert {%{screen: :password, password: "", pending_action: :save}, nil} =
+               Settings.select(s)
+    end
+
+    test "Retry on a failed open network saves directly again" do
+      s =
+        %{
+          open()
+          | screen: :saving,
+            selected_network: network("CoffeeShop", secured: false)
+        }
+        |> Settings.save_result("CoffeeShop", {:error, :unavailable})
+
+      assert {%{screen: :saving}, {:save, "CoffeeShop", nil}} = Settings.select(s)
     end
   end
 end

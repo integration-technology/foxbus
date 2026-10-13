@@ -23,4 +23,7 @@ defmodule Foxbus.Adapters.Sources.NestGen2WifiSource do
 
   @impl true
   def forget(ssid), do: NestGen2.Wifi.forget(ssid)
+
+  @impl true
+  def save(ssid, password), do: NestGen2.Wifi.save(ssid, password)
 end

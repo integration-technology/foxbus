@@ -153,16 +153,20 @@ keep an existing install's route and stops.
 ## Wi-Fi settings
 
 Pressing the dial on the splash opens settings: Wi-Fi status (SSID, IP,
-signal), the foxbus and SDK versions, and a flow to join a different network
-(scan → pick → a character-wheel password entry for secured networks it
-doesn't already know → connect). ~60 s idle, or selecting Back, returns to
-the splash.
+signal), the foxbus and SDK versions, and a flow to join a different network:
+scan → pick → "Join now" or "Save for later", sharing a character-wheel
+password entry for secured networks it doesn't already know. "Save for
+later" stores a network (replacing any saved entry with the same SSID)
+without switching to it — for somewhere the Nest will go later, such as a
+phone hotspot that's usually off at home; it only offers networks currently
+in range, though, same limitation as joining. ~60 s idle, or selecting Back,
+returns to the splash.
 
 This is built against `Foxbus.Ports.WifiSource`, a port with two adapters:
 `NestGen2WifiSource` (a thin wrapper over `NestGen2.Wifi`, nest_gen2 0.2.0 —
-what `mix.exs` configures by default) and `FakeWifiSource` (deterministic, no
-real network, for developing and testing the settings screens without
-hardware).
+`save/2` needs 0.3.0 — what `mix.exs` configures by default) and
+`FakeWifiSource` (deterministic, no real network, for developing and testing
+the settings screens without hardware).
 
 The menu's second item, "Screen", sets how the screen sleeps and wakes:
 how long idle before it sleeps ("30 s" / "1 min" / "5 min" / "Always on"),

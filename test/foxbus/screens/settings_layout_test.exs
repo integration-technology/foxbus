@@ -179,6 +179,71 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
     end
   end
 
+  describe "network_action" do
+    defp at_network_action(network, highlight \\ 0) do
+      Settings.open(@status, @versions, @screen_power)
+      |> Map.put(:screen, :network_action)
+      |> Map.put(:selected_network, network)
+      |> Map.put(:highlight, highlight)
+    end
+
+    test "shows the network's SSID" do
+      ops = at_network_action(network("Neighbour5G")) |> SettingsLayout.render()
+      assert "Neighbour5G" in texts(ops)
+    end
+
+    test "shows Join now, Save for later, and Back, one highlighted" do
+      ops = at_network_action(network("A"), 1) |> SettingsLayout.render()
+      assert "Join now" in texts(ops)
+      assert "› Save for later" in texts(ops)
+      assert "Back" in texts(ops)
+      refute "› Join now" in texts(ops)
+    end
+  end
+
+  describe "saving" do
+    test "shows a saving message" do
+      s = %{Settings.open(@status, @versions, @screen_power) | screen: :saving}
+      assert "Saving…" in texts(SettingsLayout.render(s))
+    end
+  end
+
+  describe "save_result" do
+    test "success shows the saved SSID, green background" do
+      s =
+        Settings.open(@status, @versions, @screen_power)
+        |> Map.put(:screen, :save_result)
+        |> Map.put(:save_result, {"Neighbour5G", :ok})
+
+      ops = SettingsLayout.render(s)
+      assert "Neighbour5G" in texts(ops)
+      assert "Saved:" in texts(ops)
+      assert background(ops) == "#206F37"
+    end
+
+    test "a bad password length names the specific reason" do
+      s =
+        Settings.open(@status, @versions, @screen_power)
+        |> Map.put(:screen, :save_result)
+        |> Map.put(:save_result, {"Neighbour5G", {:error, :bad_password_length}})
+
+      ops = SettingsLayout.render(s)
+      assert "Password must be 8-63 characters" in texts(ops)
+      assert background(ops) == "#C62828"
+    end
+
+    test "Retry and Back are both shown, one highlighted" do
+      s =
+        Settings.open(@status, @versions, @screen_power)
+        |> Map.put(:screen, :save_result)
+        |> Map.put(:save_result, {"Neighbour5G", {:error, :unavailable}})
+
+      ops = SettingsLayout.render(s)
+      assert "› Retry" in texts(ops)
+      assert "Back" in texts(ops)
+    end
+  end
+
   describe "password wheel" do
     defp at_password(wheel_index, wheel_group \\ :upper, password \\ "") do
       Settings.open(@status, @versions, @screen_power)
