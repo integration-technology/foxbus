@@ -96,6 +96,17 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
       ops = at_screen_power() |> SettingsLayout.render()
       assert "Back" in texts(ops)
     end
+
+    test "Always on shows a hint that it drains the battery on the stand" do
+      screen_power = %{idle_timeout_ms: :infinity, wake_on_approach?: true}
+      ops = at_screen_power(screen_power) |> SettingsLayout.render()
+      assert Enum.any?(texts(ops), &(&1 =~ "drains the battery"))
+    end
+
+    test "no battery hint at a real idle timeout" do
+      ops = at_screen_power() |> SettingsLayout.render()
+      refute Enum.any?(texts(ops), &(&1 =~ "drains the battery"))
+    end
   end
 
   describe "scanning" do

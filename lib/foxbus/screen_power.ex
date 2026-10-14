@@ -13,6 +13,13 @@ defmodule Foxbus.ScreenPower do
   only way back would be a reboot. They're folded permanently into
   `wake_sources` instead of being a UI choice.
 
+  Deep sleep (nest_gen2 0.5.0's `NestGen2.Power.set_deep_sleep/1` — the Nest
+  suspends to RAM once the screen's been asleep a few seconds, which is what
+  lets the battery charge on the base instead of draining) is tied to this
+  same choice rather than being its own UI toggle: on for every idle timeout
+  except "Always on", where the screen never sleeps in the first place so
+  there'd be nothing to suspend from.
+
   Before nest_gen2 0.3.0 this was a hand-rolled file, `screen_power.exs`
   next to the other device assets. `migrate_from_file/0`, called once at
   start (see `Foxbus.Application`), carries an existing install's choice
@@ -49,6 +56,7 @@ defmodule Foxbus.ScreenPower do
   defp apply_to_power(%{idle_timeout_ms: idle_timeout_ms, wake_on_approach?: wake_on_approach?}) do
     Power.set_idle_timeout(idle_timeout_ms)
     Power.set_wake_sources(wake_sources(wake_on_approach?))
+    Power.set_deep_sleep(idle_timeout_ms != :infinity)
   end
 
   defp wake_sources(true), do: @always_on_sources ++ @approach_sources

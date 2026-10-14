@@ -81,8 +81,16 @@ defmodule Foxbus.Screens.SettingsLayout do
       ),
       menu_item("Wake on approach: " <> on_off(s.wake_on_approach?), 185, s.highlight == 1),
       menu_item("Back", 220, s.highlight == 2)
-    ]
+    ] ++ always_on_hint(s.idle_timeout_ms)
   end
+
+  # "Always on" means the screen never sleeps, so Foxbus.ScreenPower never
+  # gets to turn deep sleep on either — worth a word, since that's also the
+  # difference between the battery charging or draining on the base.
+  defp always_on_hint(:infinity),
+    do: [{:text, 160, 250, "Always on drains the battery on the stand", text_opts(13, @dim)}]
+
+  defp always_on_hint(_idle_timeout_ms), do: []
 
   defp on_off(true), do: "On"
   defp on_off(false), do: "Off"
