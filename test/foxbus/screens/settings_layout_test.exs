@@ -254,19 +254,40 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
       |> Map.put(:password, password)
     end
 
-    test "shows the current character centred, with neighbours either side" do
+    test "shows every entry in the group around the ring, all at once" do
       ops = at_password(1) |> SettingsLayout.render()
-      # wheel_index 1 in :upper is "B", with "A" and "C" either side.
-      assert "A" in texts(ops)
-      assert "B" in texts(ops)
-      assert "C" in texts(ops)
+      entries = Settings.wheel_entries(:upper)
+      labels = Enum.map(entries, &Settings.wheel_label/1)
+      assert Enum.all?(labels, &(&1 in texts(ops)))
     end
 
-    test "wraps at the start of the wheel" do
-      ops = at_password(0) |> SettingsLayout.render()
+    test "the selected entry draws larger, with a highlight square behind it" do
+      ops = at_password(1) |> SettingsLayout.render()
+      {:text, x, y, "B", opts} = Enum.find(ops, &match?({:text, _, _, "B", _}, &1))
+      assert Keyword.fetch!(opts, :size) > 15
+      assert Enum.any?(ops, &match?({:rect, rx, ry, _, _, _} when rx < x and ry < y, &1))
+    end
+
+    test "an unselected entry draws smaller, with no highlight square" do
+      ops = at_password(1) |> SettingsLayout.render()
+      {:text, _, _, "C", opts} = Enum.find(ops, &match?({:text, _, _, "C", _}, &1))
+      assert Keyword.fetch!(opts, :size) == 15
+    end
+
+    test "a group switch's label stays in the normal font, even when selected" do
       entries = Settings.wheel_entries(:upper)
-      last_label = entries |> List.last() |> Settings.wheel_label()
-      assert last_label in texts(ops)
+      switch_index = Enum.find_index(entries, &(&1 == {:switch, :lower}))
+      ops = at_password(switch_index) |> SettingsLayout.render()
+      {:text, _, _, "abc", opts} = Enum.find(ops, &match?({:text, _, _, "abc", _}, &1))
+      refute opts[:font] == :icons
+    end
+
+    test "delete/done/cancel use the icon font" do
+      entries = Settings.wheel_entries(:upper)
+      done_index = Enum.find_index(entries, &(&1 == :done))
+      ops = at_password(done_index) |> SettingsLayout.render()
+      {:text, _, _, "✓", opts} = Enum.find(ops, &match?({:text, _, _, "✓", _}, &1))
+      assert opts[:font] == :icons
     end
 
     test "shows the typed password, masked except the last character" do

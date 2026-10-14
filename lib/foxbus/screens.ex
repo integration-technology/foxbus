@@ -44,10 +44,18 @@ defmodule Foxbus.Screens do
   rendered by `Foxbus.Screens.SettingsLayout`) — Wi-Fi status, versions, and
   changing network. While open: a `Power.keep_awake(:settings)` hold keeps
   the screen lit, the dial turns and presses route to `Settings.navigate/2`
-  and `Settings.select/1` instead of the normal screens, the password wheel
-  gets a finer dial step, and ~60 s idle returns to the splash. Scanning and
-  connecting run in a `Task` — both can take tens of seconds, and nothing
-  here must block the display that long.
+  and `Settings.select/1` instead of the normal screens, and ~60 s idle
+  returns to the splash. The password screen is a radial ring rather than a
+  stepped list (see `Settings.radial_screen?/1`): there, dial turns are read
+  as the dial's continuous absolute angle (`:dial`, not `:dial_step`) and
+  fed straight to `Settings.set_wheel_index/2`, so a physical dial position
+  points directly at a character. The angle is zeroed
+  (`NestGen2.Dial.reset_angle/0`) every time the ring's own contents change
+  underneath it — entering the password screen, and switching character
+  group on it — so index 0 always lines up with wherever the dial physically
+  is at that moment, rather than snapping the ring to wherever it last was.
+  Scanning and connecting run in a `Task` — both can take tens of seconds,
+  and nothing here must block the display that long.
 
   Deliberate trade-off: the arrival alarm is fully suppressed while settings
   is open (the underlying screen index is frozen on `:splash`, which never
@@ -71,9 +79,6 @@ defmodule Foxbus.Screens do
   # uncertain, and before it's dropped as gone — see the moduledoc.
   @due_grace_ms 90_000
   @stale_due_ms 3 * 60_000
-  # Finer than the normal screen_step_degrees, for picking one of ~26+
-  # characters on the password wheel rather than switching between 2-3 screens.
-  @password_step_degrees 15
 
   def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -95,7 +100,7 @@ defmodule Foxbus.Screens do
     background = Image.from_raw(320, 320, File.read!(Path.join(dir, "screen.raw")))
 
     NestGen2.Dial.set_step(Application.fetch_env!(:foxbus, :screen_step_degrees))
-    NestGen2.subscribe([:dial_step, :climate, :button])
+    NestGen2.subscribe([:dial_step, :dial, :climate, :button])
     schedule_tick()
     auto_advance_timer = Process.send_after(self(), :auto_advance, @auto_advance_ms)
 
@@ -163,15 +168,29 @@ defmodule Foxbus.Screens do
     {:noreply, state |> render() |> update_chirp()}
   end
 
+  # The radial ring (see Settings.radial_screen?/1) reads the dial as a
+  # continuous angle instead — nothing here to step.
+  def handle_info({:nest_gen2, :dial_step, _}, %{settings: %{screen: screen}} = state)
+      when screen in [:password] do
+    {:noreply, state}
+  end
+
   def handle_info({:nest_gen2, :dial_step, %{direction: direction}}, state) do
     total = step(direction) + pending_steps()
     dir = if total >= 0, do: :cw, else: :ccw
-    old_screen = state.settings.screen
 
     new_settings =
       Enum.reduce(1..abs(total)//1, state.settings, fn _, s -> Settings.navigate(s, dir) end)
 
-    adjust_dial_step(old_screen, new_settings.screen)
+    state = %{state | settings: new_settings} |> reset_settings_idle_timer()
+    {:noreply, render(state)}
+  end
+
+  # The radial ring: a physical dial position points at a character
+  # directly, rather than stepping through them — see the moduledoc.
+  def handle_info({:nest_gen2, :dial, %{angle: angle}}, %{settings: %{screen: :password}} = state) do
+    count = state.settings.wheel_group |> Settings.wheel_entries() |> length()
+    new_settings = Settings.set_wheel_index(state.settings, wheel_index_from_angle(angle, count))
     state = %{state | settings: new_settings} |> reset_settings_idle_timer()
     {:noreply, render(state)}
   end
@@ -212,9 +231,9 @@ defmodule Foxbus.Screens do
   end
 
   def handle_info({:nest_gen2, :button, :down}, state) do
-    old_screen = state.settings.screen
-    {new_settings, effect} = Settings.select(state.settings)
-    adjust_dial_step(old_screen, new_settings.screen)
+    old_settings = state.settings
+    {new_settings, effect} = Settings.select(old_settings)
+    maybe_reset_wheel_angle(old_settings, new_settings)
     state = %{state | settings: new_settings} |> reset_settings_idle_timer()
     handle_settings_effect(effect, state)
   end
@@ -354,9 +373,6 @@ defmodule Foxbus.Screens do
     if state.settings_power_hold, do: Power.release(state.settings_power_hold)
     if state.settings_idle_timer, do: Process.cancel_timer(state.settings_idle_timer)
     if state.settings_result_timer, do: Process.cancel_timer(state.settings_result_timer)
-    # Defensive: :back only ever reaches here from :menu, never :password, so
-    # the dial step should already be restored — but cheap to make sure.
-    adjust_dial_step(:password, :menu)
 
     %{
       state
@@ -374,15 +390,25 @@ defmodule Foxbus.Screens do
     %{state | settings_idle_timer: timer}
   end
 
-  # The password wheel needs a finer dial step than the 2-3 highlightable
-  # items on every other settings screen, since it's picking one of 26+
-  # characters rather than switching screens.
-  defp adjust_dial_step(screen, screen), do: :ok
-  defp adjust_dial_step(:password, _new), do: NestGen2.Dial.set_step(screen_step_degrees())
-  defp adjust_dial_step(_old, :password), do: NestGen2.Dial.set_step(@password_step_degrees)
-  defp adjust_dial_step(_old, _new), do: :ok
+  # Zeroes the dial's angle reference whenever the radial ring's own layout
+  # is about to change underneath it — entering it fresh, or switching
+  # character group while already on it — so wheel_index 0 lines up with
+  # wherever the dial physically is right now, rather than the ring jumping
+  # to wherever it last was. A no-op for every other transition.
+  defp maybe_reset_wheel_angle(old_settings, new_settings) do
+    if Settings.radial_screen?(new_settings.screen) and
+         (not Settings.radial_screen?(old_settings.screen) or
+            old_settings.wheel_group != new_settings.wheel_group) do
+      NestGen2.Dial.reset_angle()
+    end
+  end
 
-  defp screen_step_degrees, do: Application.fetch_env!(:foxbus, :screen_step_degrees)
+  # Maps the dial's absolute angle (degrees, continuous since the last
+  # reset_angle/0) onto one of `count` evenly-spaced ring positions.
+  defp wheel_index_from_angle(angle, count) do
+    degrees_per_slot = 360 / count
+    angle |> Kernel./(degrees_per_slot) |> Float.floor() |> trunc() |> Integer.mod(count)
+  end
 
   defp handle_settings_effect(nil, state), do: {:noreply, render(state)}
 

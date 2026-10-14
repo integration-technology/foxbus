@@ -203,24 +203,69 @@ defmodule Foxbus.Screens.SettingsLayout do
     end
   end
 
+  # A full radial ring, like stock Nest's own text entry — every entry has a
+  # fixed position all the way round (see Settings' moduledoc), and the dial's
+  # absolute angle (Foxbus.Screens) points directly at one rather than
+  # stepping through them. The password field sits in the middle, clear of
+  # the ring at every entry count this app actually uses (@groups' smallest
+  # is digits, at 16 entries — the ring only ever comes near the field at
+  # due-east/due-west, both well outside its x-span).
+  @ring_radius 128
+  @ring_selected_size 26
+  @ring_unselected_size 15
+  @accent "#2F7FD1"
+  @field_bg "#2C2C2E"
+
   defp password(s) do
     entries = Settings.wheel_entries(s.wheel_group)
     count = length(entries)
-    prev = Enum.at(entries, Integer.mod(s.wheel_index - 1, count))
-    current = Enum.at(entries, s.wheel_index)
-    next = Enum.at(entries, Integer.mod(s.wheel_index + 1, count))
+
+    ring_ops =
+      entries
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {entry, i} -> ring_entry_ops(entry, i, count, i == s.wheel_index) end)
 
     [
       {:background, @dark},
-      {:text, 160, 50, masked_password(s.password), text_opts(20, @white)},
-      {:text, 90, 160, Settings.wheel_label(prev), text_opts(20, @dim)},
-      {:text, 160, 160, Settings.wheel_label(current), wheel_center_opts(current)},
-      {:text, 230, 160, Settings.wheel_label(next), text_opts(20, @dim)}
-    ]
+      {:rect, 65, 145, 190, 30, @field_bg},
+      {:text, 160, 160, masked_password(s.password), text_opts(20, @white, @field_bg)}
+    ] ++ ring_ops
   end
 
-  defp wheel_center_opts({:char, _}), do: text_opts(44, @white)
-  defp wheel_center_opts(_control), do: [font: :icons] ++ text_opts(36, @white)
+  # index 0 at 12 o'clock, proceeding clockwise — matches wheel_entries/1's
+  # order (a group's characters, then the other groups' switches, then the
+  # controls), so the controls land in the ring's lower-right/bottom arc,
+  # same as stock's.
+  defp ring_entry_ops(entry, index, count, selected?) do
+    angle_rad = (index * (360 / count) - 90) * :math.pi() / 180
+    x = round(160 + @ring_radius * :math.cos(angle_rad))
+    y = round(160 + @ring_radius * :math.sin(angle_rad))
+    label = Settings.wheel_label(entry)
+
+    if selected? do
+      [
+        {:rect, x - 13, y - 13, 26, 26, @accent},
+        {:text, x, y, label, ring_text_opts(entry, @ring_selected_size, @white, @accent)}
+      ]
+    else
+      [{:text, x, y, label, ring_text_opts(entry, @ring_unselected_size, @dim, @dark)}]
+    end
+  end
+
+  defp ring_text_opts(entry, size, color, background) do
+    base = text_opts(size, color, background)
+    if control_entry?(entry), do: [font: :icons] ++ base, else: base
+  end
+
+  # Only :delete/:done/:cancel use the icon font (same Material Icons glyphs
+  # as the lock/check elsewhere) — a group switch's label ("ABC"/"123"/"#+=")
+  # is plain text and must stay in the normal font, unlike the old 3-slot
+  # wheel's wheel_center_opts/1, which sent every non-:char entry through the
+  # icon font and would have garbled a switch landing in the centre slot.
+  defp control_entry?(:delete), do: true
+  defp control_entry?(:done), do: true
+  defp control_entry?(:cancel), do: true
+  defp control_entry?(_entry), do: false
 
   defp masked_password(""), do: " "
 

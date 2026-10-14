@@ -32,6 +32,18 @@ defmodule Foxbus.Screens.Settings do
   same as the `:connecting`/`:result` pair, in case saving ever needs to
   become asynchronous.
 
+  The password screen is a full radial ring of characters, like stock
+  Nest's own text entry (one group at a time — `wheel_group`, switched
+  between `:upper`/`:lower`/`:digits`/`:symbols` by a control entry on the
+  ring itself — rather than stock's single ring with a shift key, the
+  simpler change given the existing group split). Each entry has a fixed
+  position around the ring (`wheel_entries/1`'s order); `Foxbus.Screens`
+  reads the dial's absolute angle and calls `set_wheel_index/2` directly,
+  rather than stepping with `navigate/2` as every other screen here does —
+  turning the dial points at a character the way turning a real rotary
+  dial points at a letter, instead of scrolling through them one at a time.
+  `radial_screen?/1` tells `Foxbus.Screens` which screens work this way.
+
   Known simplification: no "Other…" (hidden SSID) entry on the networks
   screen yet — the spec marks it optional, and so does saving one not
   currently in range (such as a phone hotspot that's usually off at home) —
@@ -109,7 +121,7 @@ defmodule Foxbus.Screens.Settings do
     upper: String.graphemes("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
     lower: String.graphemes("abcdefghijklmnopqrstuvwxyz"),
     digits: String.graphemes("0123456789"),
-    symbols: String.graphemes("!@#$%^&*()-_=+")
+    symbols: String.graphemes("!@#$%^&*()-_=+'")
   }
   @group_order [:upper, :lower, :digits, :symbols]
   @group_labels %{upper: "ABC", lower: "abc", digits: "123", symbols: "#+="}
@@ -142,12 +154,6 @@ defmodule Foxbus.Screens.Settings do
 
   def navigate(%{screen: :network_action} = s, dir),
     do: move_highlight(s, dir, length(@network_action_items))
-
-  def navigate(%{screen: :password} = s, dir) do
-    entries = wheel_entries(s.wheel_group)
-    step = if dir == :cw, do: 1, else: -1
-    %{s | wheel_index: Integer.mod(s.wheel_index + step, length(entries))}
-  end
 
   def navigate(%{screen: :result, connect_result: {:error, _}} = s, dir),
     do: move_highlight(s, dir, length(@result_items))
@@ -298,6 +304,26 @@ defmodule Foxbus.Screens.Settings do
   @spec save_result(t, String.t(), :ok | {:error, term}) :: t
   def save_result(s, ssid, result),
     do: %{s | screen: :save_result, save_result: {ssid, result}, highlight: 0}
+
+  @doc """
+  Sets the wheel's current position directly, from the dial's absolute angle
+  (see `Foxbus.Screens` — the password screen is a full radial ring, like
+  stock Nest's, not a stepped wheel: every entry has a fixed position around
+  the ring, and turning the dial points at one directly rather than
+  incrementing through them). A no-op outside the password screen.
+  """
+  @spec set_wheel_index(t, non_neg_integer) :: t
+  def set_wheel_index(%{screen: :password} = s, index), do: %{s | wheel_index: index}
+  def set_wheel_index(s, _index), do: s
+
+  @doc """
+  True when `screen` is a radial-ring screen, where the dial is read as a
+  continuous absolute angle (`set_wheel_index/2`) rather than stepped
+  (`navigate/2`) — currently just the password screen.
+  """
+  @spec radial_screen?(screen) :: boolean
+  def radial_screen?(:password), do: true
+  def radial_screen?(_screen), do: false
 
   @doc "The wheel's entries for a group: its characters, then the other groups' switches, then controls."
   @spec wheel_entries(wheel_group) :: [wheel_entry]

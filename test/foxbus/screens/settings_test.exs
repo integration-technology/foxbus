@@ -273,13 +273,26 @@ defmodule Foxbus.Screens.SettingsTest do
       assert Settings.wheel_label(:cancel) == "✗"
     end
 
-    test "turning moves the wheel index and wraps" do
+    test "set_wheel_index/2 sets the ring position directly, from the dial's angle" do
       s = at_password()
-      count = length(Settings.wheel_entries(:upper))
-      s = Settings.navigate(s, :ccw)
-      assert s.wheel_index == count - 1
-      s = Settings.navigate(s, :cw)
-      assert s.wheel_index == 0
+      s = Settings.set_wheel_index(s, 5)
+      assert s.wheel_index == 5
+    end
+
+    test "set_wheel_index/2 does nothing outside the password screen" do
+      s = %{at_password() | screen: :menu, wheel_index: 2}
+      assert Settings.set_wheel_index(s, 7).wheel_index == 2
+    end
+
+    test "radial_screen?/1 is true only for the password screen" do
+      assert Settings.radial_screen?(:password)
+      refute Settings.radial_screen?(:menu)
+      refute Settings.radial_screen?(:networks)
+    end
+
+    test "navigate/2 no longer steps the password screen (the ring reads the angle directly)" do
+      s = at_password()
+      assert Settings.navigate(s, :cw) == s
     end
 
     test "selecting a character appends it to the typed password" do
