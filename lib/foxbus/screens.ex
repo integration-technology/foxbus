@@ -66,6 +66,7 @@ defmodule Foxbus.Screens do
   alias NestGen2.{Display, Image, Piezo, Power}
   alias Foxbus.LondonTime
   alias Foxbus.Domain.Arrival
+  alias Foxbus.Adapters.Schedulers.AdaptiveBusPoller
   alias Foxbus.Screens.{Layout, Settings, SettingsLayout}
 
   @tick_ms 10_000
@@ -100,7 +101,7 @@ defmodule Foxbus.Screens do
     background = Image.from_raw(320, 320, File.read!(Path.join(dir, "screen.raw")))
 
     NestGen2.Dial.set_step(Application.fetch_env!(:foxbus, :screen_step_degrees))
-    NestGen2.subscribe([:dial_step, :dial, :climate, :button])
+    NestGen2.subscribe([:dial_step, :dial, :climate, :button, :power])
     schedule_tick()
     auto_advance_timer = Process.send_after(self(), :auto_advance, @auto_advance_ms)
 
@@ -201,6 +202,24 @@ defmodule Foxbus.Screens do
     {:noreply,
      if(current(state) == :splash and state.settings == nil, do: render(state), else: state)}
   end
+
+  # Deep sleep (nest_gen2's NestGen2.Power suspending to RAM while the screen
+  # is off) can leave the shown stop's times minutes stale by the time
+  # someone walks up: a poller's own timer only counts awake time, so it
+  # wouldn't refetch on its own until however much of its interval was left
+  # when the device went to sleep. Force one now instead of waiting.
+  def handle_info({:nest_gen2, :power, :awake}, %{settings: nil} = state) do
+    case current(state) do
+      :splash -> :ok
+      stop -> AdaptiveBusPoller.poll_now(stop)
+    end
+
+    {:noreply, state}
+  end
+
+  # Nothing shows bus times while settings is open — no stop screen to
+  # refresh until it's left.
+  def handle_info({:nest_gen2, :power, :awake}, state), do: {:noreply, state}
 
   def handle_info({:nest_gen2, :button, :down}, %{settings: nil} = state) do
     state = cancel_auto_advance(state)

@@ -25,6 +25,20 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   def start_link({stop, stop_id}),
     do: GenServer.start_link(__MODULE__, {stop, stop_id}, name: :"#{__MODULE__}.#{stop}")
 
+  @doc """
+  Forces an immediate poll, bypassing the scheduled delay — for
+  `Foxbus.Screens` to call right after the device wakes from deep sleep
+  (nest_gen2's `:power` `:awake` event), since the last fetch could be
+  minutes stale after a sleep of up to 270 s: a poller's own timer only
+  counts awake time, so it wouldn't otherwise refetch until however much of
+  its normal interval was still left when the device went to sleep. Doesn't
+  cancel the timer already pending from the last scheduled poll, so one
+  redundant fetch can follow shortly after — cheap and harmless, not worth
+  tracking a timer ref to avoid.
+  """
+  @spec poll_now(atom) :: :ok
+  def poll_now(stop), do: GenServer.cast(:"#{__MODULE__}.#{stop}", :poll_now)
+
   @impl true
   def init({stop, stop_id}) do
     send(self(), :poll)
@@ -32,7 +46,12 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   end
 
   @impl true
-  def handle_info(:poll, state) do
+  def handle_info(:poll, state), do: do_poll(state)
+
+  @impl true
+  def handle_cast(:poll_now, state), do: do_poll(state)
+
+  defp do_poll(state) do
     result = Foxbus.Arrivals.fetch_and_publish(state.stop, state.stop_id)
 
     state =
