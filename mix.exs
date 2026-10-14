@@ -18,12 +18,13 @@ defmodule Foxbus.MixProject do
   end
 
   # The SDK from Hex, or a local path for co-development (set NEST_GEN2_PATH
-  # when working on both repos at once). "~> 0.4.0", not "~> 0.4" — the
-  # trailing .0 matters, since "~> 0.4" alone would also allow a breaking 0.5
-  # before 1.0. 0.4.0 adds NestGen2.Gesture (click/double_click/long_press).
+  # when working on both repos at once). "~> 0.5.0", not "~> 0.5" — the
+  # trailing .0 matters, since "~> 0.5" alone would also allow a breaking 0.6
+  # before 1.0. 0.5.0 adds NestGen2.Power.set_deep_sleep/1, which
+  # Foxbus.ScreenPower is now built on.
   defp nest_gen2_dep do
     case System.get_env("NEST_GEN2_PATH") do
-      nil -> {:nest_gen2, "~> 0.4.0"}
+      nil -> {:nest_gen2, "~> 0.5.0"}
       path -> {:nest_gen2, path: path}
     end
   end
