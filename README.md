@@ -176,7 +176,46 @@ screen to drill into. The dial and button always wake the screen; there's
 no way to turn that off, since with wake-on-approach also off there'd be no
 way back short of a reboot. The choice is saved to `NestGen2.Storage` (see
 `Foxbus.ScreenPower`) and re-applied on every boot, since `NestGen2.Power`
-itself always starts from its own defaults (30 s, every wake source).
+itself always starts from its own defaults (30 s, every wake source). It
+also decides whether deep sleep is on — see "Power and the battery" below.
+
+## Power and the battery
+
+On its base or stand the Nest only gets about 120 mA — less than it uses
+while awake — so without deep sleep the battery actually drains while
+sitting there "charging". See the SDK's
+[docs/power.md](https://github.com/integration-technology/nest_gen2_sdk/blob/main/docs/power.md)
+for the budget and what deep sleep does underneath foxbus.
+
+What foxbus does about it:
+
+- Turns deep sleep on via `NestGen2.Power.set_deep_sleep/1` from the Screen
+  setting above: on for every real idle timeout (30 s / 1 min / 5 min), off
+  for "Always on", since the screen never sleeps there so there'd be nothing
+  to suspend from (`Foxbus.ScreenPower`).
+- Refreshes the shown stop's times as soon as the device wakes
+  (`{:nest_gen2, :power, :awake}`) — a poller's own timer only counts awake
+  time, so without this a stop could otherwise sit several minutes stale
+  until its next scheduled poll.
+- Releases its `keep_awake` holds (the bus alarm, settings being open) as
+  soon as each is no longer needed, rather than holding the device awake
+  longer than it has to.
+
+What this means day to day:
+
+- "Always on" drains the battery on the stand (the settings UI says so) —
+  use it only on USB power, or only briefly on the stand.
+- After a long sleep, the shown times catch up within a second or two of the
+  screen lighting up, not instantly — there's a real fetch in between.
+- Arming a bus alarm keeps the Nest fully awake for as long as it's armed,
+  so it won't deep-sleep meanwhile — arm one close to the bus, not as soon
+  as it appears on the board.
+
+Measured on this hardware: without deep sleep, the head battery drained
+about 70 mV/h and ran flat overnight; with it, about +290 mV/h, holding at
+its 3.92–3.93 V ceiling for 17+ hours afterwards. The base/stand's own
+blinking lights (green while starting or updating, red if the battery's too
+low to start) are explained in the SDK's docs, linked above.
 
 ## Build and test
 
