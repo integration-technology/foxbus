@@ -166,6 +166,32 @@ shape above, defaulting every migrated stop to `provider: :carousel` — in
 both cases, nothing needs doing by hand to keep an existing install's route
 and stops.
 
+## Providers
+
+A screen's `provider` names which `Foxbus.Ports.Provider` module fetches
+its departures (see `Foxbus.Ports.Provider.all/0`):
+
+- `:carousel` — Carousel Buses, HTML-scraped (`stop_id` is an ATCO code,
+  `lines` are route numbers like `"105"`) — the default, and the only one
+  that supports stop closures as well as line disruptions.
+- `:tfl` — live TfL Underground arrivals and line status, no scraping
+  (`stop_id` is a TfL StopPoint id, e.g. `"910GAMERSHM"` for Amersham —
+  look one up at `https://api.tfl.gov.uk/StopPoint/Search/<name>`; `lines`
+  are TfL's own line names, e.g. `"Metropolitan"`). No stop-closure concept
+  — TfL has line status, not a per-station closure notice. Needs a free
+  TfL `app_key` (register at https://api-portal.tfl.gov.uk; works
+  unauthenticated too, just at a much lower rate limit) — set it, as a
+  secret, via Storage rather than `mix.exs`:
+
+  ```sh
+  ../nest_gen2_sdk/platform/storage.sh foxbus put tfl_app_key '"<your key>"'
+  ```
+
+Adding more providers (more transport operators, more APIs) means adding a
+module implementing `Foxbus.Ports.Provider` and listing it in `all/0` — a
+code change and a release, not something loaded onto the device at
+runtime; see that module's moduledoc for why.
+
 ## Wi-Fi settings
 
 Pressing the dial on the splash opens settings: Wi-Fi status (SSID, IP,

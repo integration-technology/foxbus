@@ -12,7 +12,10 @@ defmodule Foxbus.MixProject do
       aliases: [test: "test --no-start"],
       deps: [
         nest_gen2_dep(),
-        {:floki, "~> 0.38"}
+        {:floki, "~> 0.38"},
+        # JSON decoding for the TfL/rail providers — OTP 26 (this project's
+        # toolchain) predates the built-in :json module, added in OTP 27.
+        {:jason, "~> 1.4"}
       ]
     ]
   end
