@@ -13,7 +13,7 @@ defmodule Foxbus.DisruptionsTest do
     @impl true
     def closures?, do: false
     @impl true
-    def fetch_arrivals(_stop_id), do: {:ok, []}
+    def fetch_arrivals(_stop_id, _lines), do: {:ok, []}
 
     def disrupted?(["fail"], _stop_id), do: {:error, :timeout}
     def disrupted?(lines, _stop_id), do: {:ok, "105" in lines}

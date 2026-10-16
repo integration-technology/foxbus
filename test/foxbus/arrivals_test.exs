@@ -15,16 +15,16 @@ defmodule Foxbus.ArrivalsTest do
     def closures?, do: false
 
     @impl true
-    def fetch_arrivals("fail"), do: {:error, :timeout}
+    def fetch_arrivals("fail", _lines), do: {:error, :timeout}
 
-    def fetch_arrivals("mixed") do
+    def fetch_arrivals("mixed", _lines) do
       {:ok,
        for {line, eta} <- [{"105", 30}, {"1", 3}, {"105", 12}, {"32A", 7}] do
          %Arrival{line: line, destination: "Mapleton", eta_minutes: eta, status: :live}
        end}
     end
 
-    def fetch_arrivals(_id) do
+    def fetch_arrivals(_id, _lines) do
       {:ok,
        for eta <- [30, 3, 12] do
          %Arrival{line: "105", destination: "Mapleton", eta_minutes: eta, status: :live}

@@ -105,8 +105,12 @@ end
 defmodule Foxbus.Ports.Provider do
   @moduledoc """
   A data-provider adapter bundles everything a screen needs: fetching
-  arrivals is mandatory (`fetch_arrivals/1`); disruption and stop-closure
-  reporting are optional capabilities a provider may have no concept of —
+  arrivals is mandatory (`fetch_arrivals/2` — takes the stop's own watched
+  `lines` too, not just its id, since a per-line source like TfL's
+  timetable genuinely needs to know which line it's being asked for;
+  Carousel's board-scrape ignores it and returns everything, same as
+  before). Disruption and stop-closure reporting are optional capabilities
+  a provider may have no concept of —
   TfL has line status but nothing shaped like "this stop is closed";
   National Rail has cancellations, not a per-station closure notice either.
   Every provider must still declare `disruptions?/0`/`closures?/0`
@@ -131,7 +135,8 @@ defmodule Foxbus.Ports.Provider do
 
   @callback id() :: atom
   @callback label() :: String.t()
-  @callback fetch_arrivals(stop_id :: String.t()) :: {:ok, [Arrival.t()]} | {:error, term}
+  @callback fetch_arrivals(stop_id :: String.t(), lines :: [String.t()]) ::
+              {:ok, [Arrival.t()]} | {:error, term}
   @callback disruptions?() :: boolean
   @callback closures?() :: boolean
 

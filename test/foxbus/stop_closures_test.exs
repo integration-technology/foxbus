@@ -13,7 +13,7 @@ defmodule Foxbus.StopClosuresTest do
     @impl true
     def closures?, do: true
     @impl true
-    def fetch_arrivals(_stop_id), do: {:ok, []}
+    def fetch_arrivals(_stop_id, _lines), do: {:ok, []}
 
     def closure("fail"), do: {:error, :timeout}
     def closure("000000000003"), do: {:ok, "No buses today."}

@@ -21,8 +21,11 @@ defmodule Foxbus.Adapters.Sources.CarouselProvider do
   @impl true
   def label, do: "Carousel Buses"
 
+  # `lines` is unused — Carousel's board scrape returns every line at the
+  # stop in one page fetch; filtering down to the watched ones happens
+  # afterward, in Foxbus.Arrivals.
   @impl true
-  def fetch_arrivals(stop_id), do: CarouselScrapeSource.fetch_arrivals(stop_id)
+  def fetch_arrivals(stop_id, _lines), do: CarouselScrapeSource.fetch_arrivals(stop_id)
 
   @impl true
   def disruptions?, do: true

@@ -10,7 +10,7 @@ defmodule Foxbus.Arrivals do
 
   @spec fetch(module, String.t(), [String.t()]) :: {:ok, [Arrival.t()]} | {:error, term}
   def fetch(provider, stop_id, lines) do
-    with {:ok, arrivals} <- provider.fetch_arrivals(stop_id) do
+    with {:ok, arrivals} <- provider.fetch_arrivals(stop_id, lines) do
       {:ok, arrivals |> filter_lines(lines) |> Arrival.sort_by_eta()}
     end
   end

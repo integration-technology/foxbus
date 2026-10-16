@@ -174,18 +174,26 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
 - `:carousel` — Carousel Buses, HTML-scraped (`stop_id` is an ATCO code,
   `lines` are route numbers like `"105"`) — the default, and the only one
   that supports stop closures as well as line disruptions.
-- `:tfl` — live TfL Underground arrivals and line status, no scraping
-  (`stop_id` is a TfL StopPoint id for the *Underground* platform
+- `:tfl` — scheduled TfL Underground departures and live line status, no
+  scraping (`stop_id` is a TfL StopPoint id for the *Underground* platform
   specifically, not a rail station id — they can differ even at a joint
   station: Amersham's Underground StopPoint is `"940GZZLUAMS"`, not its
   National Rail id. Look one up at
   `https://api.tfl.gov.uk/StopPoint/Search/<name>`, then check `modes`
   includes `"tube"` on the result before using it; `lines` are TfL's own
-  line names, e.g. `"Metropolitan"`). No stop-closure concept — TfL has
-  line status, not a per-station closure notice. Needs a free TfL
-  `app_key` (register at https://api-portal.tfl.gov.uk; works
-  unauthenticated too, just at a much lower rate limit) — set it, as a
-  secret, via Storage rather than `mix.exs`:
+  line names, e.g. `"Metropolitan"`). Departures come from TfL's own
+  scheduled timetable, not its live Arrivals feed — checked live against a
+  real terminus (Amersham) first: the Arrivals feed only ever lists trains
+  *arriving* to terminate there, nothing outbound, so it can't answer "when
+  does the next train leave" at a terminus at all (see
+  `Foxbus.Adapters.Sources.TflProvider`'s moduledoc). The timetable is
+  cached in Storage and only refetched once a UK calendar day, since it's
+  a large (~130 KB) response on a memory-constrained device. No
+  stop-closure concept — TfL has line status, not a per-station closure
+  notice. Needs a free TfL `app_key` (register at
+  https://api-portal.tfl.gov.uk; works unauthenticated too, just at a much
+  lower rate limit) — set it, as a secret, via Storage rather than
+  `mix.exs`:
 
   ```sh
   ../nest_gen2_sdk/platform/storage.sh foxbus put tfl_app_key '"<your key>"'

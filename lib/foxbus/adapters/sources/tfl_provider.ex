@@ -1,18 +1,40 @@
 defmodule Foxbus.Adapters.Sources.TflProvider do
   @moduledoc """
-  Live Underground arrivals and line status from TfL's own Unified API
-  (https://api.tfl.gov.uk), no scraping — a stop's `stop_id` is its TfL
-  StopPoint id (a NaPTAN code, e.g. "910GAMERSHM" for Amersham — look one up
-  with `https://api.tfl.gov.uk/StopPoint/Search/<name>`).
+  Scheduled Underground departures and line status from TfL's own Unified
+  API (https://api.tfl.gov.uk), no scraping — a stop's `stop_id` is its TfL
+  StopPoint id for the *Underground* platform specifically, not a rail
+  station id — they can differ even at a joint station: Amersham's
+  Underground StopPoint is `"940GZZLUAMS"`, not its National Rail id. Look
+  one up at `https://api.tfl.gov.uk/StopPoint/Search/<name>`, then check
+  `modes` includes `"tube"` on the result. `lines` (here and in
+  `Foxbus.Config`) are TfL's own line *names* (`"Metropolitan"`, not the
+  lowercase slug `"metropolitan"` the Timetable/Status endpoints actually
+  take in their URL) — `line_id/1` derives the slug from the name for that
+  internal use; every London Underground line name maps cleanly this way,
+  including the "&" ones (`"Hammersmith & City"` -> `"hammersmith-city"`).
 
-  `lines` (here and in `Foxbus.Config`) are TfL's own line *names*, as shown
-  on screen and returned by the Arrivals endpoint (`"Metropolitan"`, not the
-  lowercase slug `"metropolitan"` the Status endpoint actually takes in its
-  URL) — `line_id/1` derives the slug from the name for that one internal
-  use. This only needs to handle the names TfL's own lines actually have;
-  every London Underground line name maps cleanly (lowercase, "&" becomes a
-  hyphen, e.g. "Hammersmith & City" -> "hammersmith-city", matching TfL's
-  real line ids).
+  **Why the scheduled timetable, not the live Arrivals feed**: checked live
+  against a real terminus (Amersham) before building this — the Arrivals
+  feed only ever lists trains *arriving* to terminate there (every
+  prediction pointed north, into the station, not south towards London),
+  each one duplicated once per platform it could use. There is no live feed
+  of a terminus's own outbound departures; TfL's own suggestion for this is
+  the scheduled timetable (`/Line/{line}/Timetable/{stop}`), matched against
+  the time of day — which is what `fetch_arrivals/2` does, with
+  `status: :scheduled` throughout. A live "that scheduled train is now N
+  minutes out" overlay, blended in from the Arrivals feed, is a reasonable
+  future enhancement but isn't built here.
+
+  **Caching**: the timetable response is large (~130 KB — the whole day's
+  journeys across every day-type) and this is a memory-constrained device,
+  so it is never re-fetched on every poll. `fetch_arrivals/2` parses it down
+  to a few dozen small `{hour, minute, destination}` tuples per day-type and
+  caches that in `NestGen2.Storage`, refetching only once a calendar day
+  (UK local date). Known simplification: the day-type (`"Monday - Thursday"`
+  / `"Friday"` / `"Saturdays and Public Holidays"` / `"Sunday"`) is chosen
+  from the day of the week alone — a weekday public holiday still gets its
+  ordinary weekday schedule, not the holiday one, since there's no holiday
+  calendar here to check against.
 
   No stop-closure concept here (`closures?/0` is false) — TfL has line
   status, not a per-station "this stop is closed" notice.
@@ -32,6 +54,7 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   alias NestGen2.Storage
 
   @base_url "https://api.tfl.gov.uk"
+  @upcoming_count 3
 
   @impl true
   def id, do: :tfl
@@ -46,31 +69,163 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   def closures?, do: false
 
   @impl true
-  def fetch_arrivals(stop_id) do
-    with {:ok, predictions} <- TflHttp.get(url("/StopPoint/#{stop_id}/Arrivals")) do
-      {:ok, parse_arrivals(predictions)}
-    end
-  end
-
-  @doc false
-  @spec parse_arrivals([map]) :: [Arrival.t()]
-  def parse_arrivals(predictions) do
-    Enum.map(predictions, fn p ->
-      %Arrival{
-        line: Map.fetch!(p, "lineName"),
-        destination: destination(p),
-        eta_minutes: div(Map.fetch!(p, "timeToStation"), 60),
-        status: :live
-      }
+  def fetch_arrivals(stop_id, lines) do
+    lines
+    |> Enum.uniq()
+    |> Enum.reduce_while({:ok, []}, fn line, {:ok, acc} ->
+      case upcoming_departures(stop_id, line) do
+        {:ok, arrivals} -> {:cont, {:ok, acc ++ arrivals}}
+        {:error, _reason} = error -> {:halt, error}
+      end
     end)
   end
 
-  # destinationName is often "" — a train terminating here, or one TfL
-  # hasn't mapped a name for — towards (e.g. "Amersham") is the usable
-  # fallback in that case.
-  defp destination(%{"destinationName" => name}) when name not in [nil, ""], do: name
-  defp destination(%{"towards" => towards}) when towards not in [nil, ""], do: towards
-  defp destination(_prediction), do: "Unknown"
+  defp upcoming_departures(stop_id, line) do
+    now = Foxbus.LondonTime.now()
+
+    with {:ok, schedules} <- cached_schedules(stop_id, line) do
+      day = day_type(NaiveDateTime.to_date(now))
+      now_minutes = now.hour * 60 + now.minute
+
+      departures =
+        schedules
+        |> Map.get(day, [])
+        |> next_departures(now_minutes)
+        |> Enum.map(fn {hour, minute, destination} ->
+          to_arrival(line, hour, minute, destination, now_minutes)
+        end)
+
+      {:ok, departures}
+    end
+  end
+
+  @doc "Keeps only the next `@upcoming_count` departures at or after `now_minutes`."
+  @spec next_departures([{non_neg_integer, non_neg_integer, String.t()}], non_neg_integer) ::
+          [{non_neg_integer, non_neg_integer, String.t()}]
+  def next_departures(departures, now_minutes) do
+    departures
+    |> Enum.filter(fn {hour, minute, _destination} -> hour * 60 + minute >= now_minutes end)
+    |> Enum.take(@upcoming_count)
+  end
+
+  defp to_arrival(line, hour, minute, destination, now_minutes) do
+    %Arrival{
+      line: line,
+      destination: destination,
+      eta_minutes: max(hour * 60 + minute - now_minutes, 0),
+      status: :scheduled,
+      scheduled_time: Time.new!(hour, minute, 0)
+    }
+  end
+
+  @doc "Monday-Thursday/Friday/Saturday/Sunday, matching the Timetable endpoint's own schedule names."
+  @spec day_type(Date.t()) :: String.t()
+  def day_type(date) do
+    case Date.day_of_week(date) do
+      day when day in 1..4 -> "Monday - Thursday"
+      5 -> "Friday"
+      6 -> "Saturdays and Public Holidays"
+      7 -> "Sunday"
+    end
+  end
+
+  defp cached_schedules(stop_id, line) do
+    key = cache_key(stop_id, line)
+    today = NaiveDateTime.to_date(Foxbus.LondonTime.now())
+
+    case Storage.get(key, nil, app: :foxbus) do
+      %{fetched_on: ^today, schedules: schedules} ->
+        {:ok, schedules}
+
+      _stale_or_missing ->
+        with {:ok, schedules} <- fetch_and_parse_timetable(stop_id, line) do
+          Storage.put(key, %{fetched_on: today, schedules: schedules}, app: :foxbus)
+          {:ok, schedules}
+        end
+    end
+  end
+
+  # Storage keys are lowercase letters/digits/underscore only — stop_id is
+  # already alnum, but line_id/1 can contain hyphens ("hammersmith-city").
+  defp cache_key(stop_id, line) do
+    slug = line |> line_id() |> String.replace("-", "_")
+    "tfl_tt_" <> String.downcase(stop_id) <> "_" <> slug
+  end
+
+  defp fetch_and_parse_timetable(stop_id, line) do
+    with {:ok, json} <- TflHttp.get(url("/Line/#{line_id(line)}/Timetable/#{stop_id}")) do
+      {:ok, parse_timetable(json)}
+    end
+  end
+
+  @doc """
+  The timetable response's `schedules` (one per day-type, e.g.
+  `"Monday - Thursday"`), each turned into a sorted list of
+  `{hour, minute, destination}` — the destination resolved from that
+  journey's own `stationIntervals` entry (the last, longest leg is where it
+  terminates). Journeys TfL marks with an hour of 24 or more (the small
+  hours of the *next* calendar day, still filed under this schedule) are
+  dropped rather than handled with day-rollover logic — they're late-night
+  trips, not normal viewing hours.
+  """
+  @spec parse_timetable(map) :: %{String.t() => [{non_neg_integer, non_neg_integer, String.t()}]}
+  def parse_timetable(json) do
+    names = station_names(json)
+    destinations = route_destinations(json, names)
+
+    json
+    |> get_in(["timetable", "routes"])
+    |> List.wrap()
+    |> List.first(%{})
+    |> Map.get("schedules", [])
+    |> Map.new(fn schedule ->
+      departures =
+        schedule
+        |> Map.get("knownJourneys", [])
+        |> Enum.flat_map(&journey_departure(&1, destinations))
+        |> Enum.sort()
+
+      {Map.fetch!(schedule, "name"), departures}
+    end)
+  end
+
+  defp station_names(json) do
+    json
+    |> Map.get("stations", [])
+    |> Map.new(fn s -> {Map.fetch!(s, "id"), Map.fetch!(s, "name")} end)
+  end
+
+  defp route_destinations(json, names) do
+    json
+    |> get_in(["timetable", "routes"])
+    |> List.wrap()
+    |> List.first(%{})
+    |> Map.get("stationIntervals", [])
+    |> Map.new(fn interval ->
+      destination =
+        interval
+        |> Map.get("intervals", [])
+        |> Enum.max_by(&Map.get(&1, "timeToArrival", 0), fn -> nil end)
+        |> case do
+          nil -> "Unknown"
+          %{"stopId" => stop_id} -> Map.get(names, stop_id, "Unknown")
+        end
+
+      {Map.fetch!(interval, "id"), destination}
+    end)
+  end
+
+  defp journey_departure(journey, destinations) do
+    hour = journey |> Map.fetch!("hour") |> String.to_integer()
+    minute = journey |> Map.fetch!("minute") |> String.to_integer()
+
+    if hour in 0..23 do
+      interval_id = journey |> Map.fetch!("intervalId") |> Integer.to_string()
+      [{hour, minute, Map.get(destinations, interval_id, "Unknown")}]
+    else
+      []
+    end
+  end
 
   @doc "See `Foxbus.Ports.DisruptionsSource` — present because disruptions?/0 is true."
   @spec disrupted?([String.t()], String.t()) :: {:ok, String.t() | nil} | {:error, term}

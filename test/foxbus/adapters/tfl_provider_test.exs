@@ -2,77 +2,130 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
   use ExUnit.Case, async: true
   alias Foxbus.Adapters.Sources.TflProvider
 
-  # Shaped like a real TfL StopPoint Arrivals prediction (confirmed live
-  # against api.tfl.gov.uk) — only the fields parse_arrivals/1 actually
-  # reads are included.
-  defp prediction(attrs) do
-    Map.merge(
-      %{
-        "lineName" => "Metropolitan",
-        "destinationName" => "Amersham Underground Station",
-        "towards" => "Amersham",
-        "timeToStation" => 234
-      },
-      attrs
-    )
+  # Shaped like a real TfL Line Timetable response (confirmed live against
+  # api.tfl.gov.uk for Amersham/Metropolitan) — trimmed to what
+  # parse_timetable/1 actually reads: two destinations (interval "0" runs
+  # all the way to Aldgate; interval "1" terminates sooner, at Baker
+  # Street), one Monday-Thursday journey with TfL's own "next calendar
+  # day" hour (24) to prove it's dropped, and a separate Sunday schedule to
+  # prove day-types don't bleed into each other.
+  defp timetable_json do
+    %{
+      "stations" => [
+        %{"id" => "940GZZLUAMS", "name" => "Amersham Underground Station"},
+        %{"id" => "940GZZLUBST", "name" => "Baker Street Underground Station"},
+        %{"id" => "940GZZLUALD", "name" => "Aldgate Underground Station"}
+      ],
+      "timetable" => %{
+        "departureStopId" => "940GZZLUAMS",
+        "routes" => [
+          %{
+            "stationIntervals" => [
+              %{
+                "id" => "0",
+                "intervals" => [
+                  %{"stopId" => "940GZZLUBST", "timeToArrival" => 53.0},
+                  %{"stopId" => "940GZZLUALD", "timeToArrival" => 69.0}
+                ]
+              },
+              %{
+                "id" => "1",
+                "intervals" => [
+                  %{"stopId" => "940GZZLUBST", "timeToArrival" => 53.0}
+                ]
+              }
+            ],
+            "schedules" => [
+              %{
+                "name" => "Monday - Thursday",
+                "knownJourneys" => [
+                  %{"hour" => "5", "minute" => "22", "intervalId" => 0},
+                  %{"hour" => "6", "minute" => "4", "intervalId" => 1},
+                  %{"hour" => "24", "minute" => "50", "intervalId" => 0}
+                ]
+              },
+              %{
+                "name" => "Sunday",
+                "knownJourneys" => [
+                  %{"hour" => "6", "minute" => "59", "intervalId" => 0}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
   end
 
-  describe "parse_arrivals/1" do
-    test "maps line, destination, and seconds to minutes" do
-      assert [a] = TflProvider.parse_arrivals([prediction(%{})])
+  describe "parse_timetable/1" do
+    test "resolves each journey's destination from its own stationInterval" do
+      schedules = TflProvider.parse_timetable(timetable_json())
 
-      assert {a.line, a.destination, a.eta_minutes, a.status} ==
-               {"Metropolitan", "Amersham Underground Station", 3, :live}
+      assert schedules["Monday - Thursday"] == [
+               {5, 22, "Aldgate Underground Station"},
+               {6, 4, "Baker Street Underground Station"}
+             ]
     end
 
-    test "rounds down to the minute" do
-      assert [a] = TflProvider.parse_arrivals([prediction(%{"timeToStation" => 299})])
-      assert a.eta_minutes == 4
+    test "drops journeys with hour 24+ instead of getting day-rollover wrong" do
+      schedules = TflProvider.parse_timetable(timetable_json())
+      refute Enum.any?(schedules["Monday - Thursday"], fn {h, _m, _d} -> h >= 24 end)
     end
 
-    test "falls back to towards when destinationName is blank" do
-      assert [a] = TflProvider.parse_arrivals([prediction(%{"destinationName" => ""})])
-      assert a.destination == "Amersham"
+    test "keeps every day-type's schedule separate" do
+      schedules = TflProvider.parse_timetable(timetable_json())
+      assert schedules["Sunday"] == [{6, 59, "Aldgate Underground Station"}]
     end
 
-    test "falls back to towards when destinationName is missing entirely, not just blank" do
-      # A real prediction at a branch terminus (Amersham, Metropolitan line)
-      # — TfL omits destinationName altogether here, not just leaves it "".
-      real = %{
-        "lineName" => "Metropolitan",
-        "towards" => "Check Front of Train",
-        "timeToStation" => 289
-      }
+    test "an empty timetable parses to empty schedules, not a crash" do
+      empty = %{"stations" => [], "timetable" => %{"routes" => []}}
+      assert TflProvider.parse_timetable(empty) == %{}
+    end
+  end
 
-      assert [a] = TflProvider.parse_arrivals([real])
-      assert a.destination == "Check Front of Train"
+  describe "next_departures/2" do
+    test "keeps only departures at or after now, soonest first" do
+      departures = [{5, 22, "A"}, {6, 4, "B"}, {9, 0, "C"}]
+      assert TflProvider.next_departures(departures, 6 * 60) == [{6, 4, "B"}, {9, 0, "C"}]
     end
 
-    test "falls back to a placeholder when both are blank" do
-      assert [a] =
-               TflProvider.parse_arrivals([
-                 prediction(%{"destinationName" => "", "towards" => ""})
-               ])
-
-      assert a.destination == "Unknown"
+    test "a departure at exactly now still counts" do
+      departures = [{6, 4, "B"}]
+      assert TflProvider.next_departures(departures, 6 * 60 + 4) == [{6, 4, "B"}]
     end
 
-    test "no predictions is an empty list" do
-      assert TflProvider.parse_arrivals([]) == []
+    test "keeps at most 3" do
+      departures = [{5, 0, "A"}, {6, 0, "B"}, {7, 0, "C"}, {8, 0, "D"}]
+      assert length(TflProvider.next_departures(departures, 0)) == 3
     end
 
-    test "several predictions all parse" do
-      predictions = [prediction(%{"timeToStation" => 60}), prediction(%{"timeToStation" => 420})]
-      assert [a, b] = TflProvider.parse_arrivals(predictions)
-      assert {a.eta_minutes, b.eta_minutes} == {1, 7}
+    test "none left today is an empty list" do
+      assert TflProvider.next_departures([{5, 0, "A"}], 23 * 60) == []
+    end
+  end
+
+  describe "day_type/1" do
+    test "Monday through Thursday" do
+      for date <- [~D[2026-10-12], ~D[2026-10-13], ~D[2026-10-14], ~D[2026-10-15]] do
+        assert TflProvider.day_type(date) == "Monday - Thursday"
+      end
+    end
+
+    test "Friday" do
+      assert TflProvider.day_type(~D[2026-10-16]) == "Friday"
+    end
+
+    test "Saturday" do
+      assert TflProvider.day_type(~D[2026-10-17]) == "Saturdays and Public Holidays"
+    end
+
+    test "Sunday" do
+      assert TflProvider.day_type(~D[2026-10-18]) == "Sunday"
     end
   end
 
   describe "parse_status/1" do
-    # Shaped like a real TfL Line Status response.
-    defp line_status_json(status) do
-      [%{"lineStatuses" => [status]}]
-    end
+    defp line_status_json(status), do: [%{"lineStatuses" => [status]}]
 
     test "nil on Good Service" do
       assert TflProvider.parse_status(
