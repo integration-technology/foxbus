@@ -35,6 +35,19 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
       assert a.destination == "Amersham"
     end
 
+    test "falls back to towards when destinationName is missing entirely, not just blank" do
+      # A real prediction at a branch terminus (Amersham, Metropolitan line)
+      # — TfL omits destinationName altogether here, not just leaves it "".
+      real = %{
+        "lineName" => "Metropolitan",
+        "towards" => "Check Front of Train",
+        "timeToStation" => 289
+      }
+
+      assert [a] = TflProvider.parse_arrivals([real])
+      assert a.destination == "Check Front of Train"
+    end
+
     test "falls back to a placeholder when both are blank" do
       assert [a] =
                TflProvider.parse_arrivals([
