@@ -7,6 +7,11 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
     * every 30 s once the next bus is 5 minutes away or less
     * every 30 minutes when a fetch returns no buses at all (end of service,
       which also covers Sundays without any day-of-week logic)
+    * every 10 s after a failure, until the very first fetch has ever
+      succeeded — a slow Wi-Fi reconnect (e.g. just after waking from deep
+      sleep) or start-up contention with other pollers (see
+      `Foxbus.Application`'s staggered start) shouldn't mean waiting a full
+      minute-plus for the next try
 
   Every failure is logged at warning; the first success is also logged, once,
   at info — so a stop stuck "Checking times" after boot (see
@@ -21,10 +26,11 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   @tight_interval_ms 30_000
   @tight_threshold_minutes 5
   @no_service_retry_ms 30 * 60_000
+  @first_retry_ms 10_000
 
-  def start_link({provider, stop, stop_id, lines}),
+  def start_link({provider, stop, stop_id, lines, delay_ms}),
     do:
-      GenServer.start_link(__MODULE__, {provider, stop, stop_id, lines},
+      GenServer.start_link(__MODULE__, {provider, stop, stop_id, lines, delay_ms},
         name: :"#{__MODULE__}.#{stop}"
       )
 
@@ -43,8 +49,8 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   def poll_now(stop), do: GenServer.cast(:"#{__MODULE__}.#{stop}", :poll_now)
 
   @impl true
-  def init({provider, stop, stop_id, lines}) do
-    send(self(), :poll)
+  def init({provider, stop, stop_id, lines, delay_ms}) do
+    Process.send_after(self(), :poll, delay_ms)
 
     {:ok,
      %{
@@ -79,17 +85,22 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
           %{state | logged_first_success?: true}
       end
 
-    Process.send_after(self(), :poll, next_delay(result))
+    Process.send_after(self(), :poll, next_delay(result, state.logged_first_success?))
     {:noreply, state}
   end
 
-  @doc "How long to wait before the next poll, given the last result."
-  @spec next_delay({:ok, [Arrival.t()]} | {:error, term}) :: pos_integer
-  def next_delay({:ok, []}), do: @no_service_retry_ms
+  @doc """
+  How long to wait before the next poll, given the last result and whether
+  this stop has ever had a successful fetch yet.
+  """
+  @spec next_delay({:ok, [Arrival.t()]} | {:error, term}, boolean) :: pos_integer
+  def next_delay({:error, _}, false), do: @first_retry_ms
+  def next_delay({:ok, []}, _succeeded_before?), do: @no_service_retry_ms
 
-  def next_delay({:ok, [%Arrival{eta_minutes: eta} | _]}) when eta <= @tight_threshold_minutes,
-    do: @tight_interval_ms
+  def next_delay({:ok, [%Arrival{eta_minutes: eta} | _]}, _succeeded_before?)
+      when eta <= @tight_threshold_minutes,
+      do: @tight_interval_ms
 
-  def next_delay({:ok, _}), do: @base_interval_ms
-  def next_delay({:error, _}), do: @base_interval_ms
+  def next_delay({:ok, _}, _succeeded_before?), do: @base_interval_ms
+  def next_delay({:error, _}, true), do: @base_interval_ms
 end

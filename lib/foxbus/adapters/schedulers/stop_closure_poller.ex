@@ -4,7 +4,9 @@ defmodule Foxbus.Adapters.Schedulers.StopClosurePoller do
   (see `Foxbus.Ports.Provider.closures?/0` — `Foxbus.Application` only
   starts this for such a stop): polls `Foxbus.StopClosures` for that stop
   every 5 minutes — the same cadence as `DisruptionPoller`, since a stop
-  closure notice changes about as rarely as a line-wide one.
+  closure notice changes about as rarely as a line-wide one — or every 10 s
+  after a failure, until the very first fetch has ever succeeded (see
+  `AdaptiveBusPoller`'s moduledoc for why).
 
   Until the first check lands, a stop screen shows "Checking times" rather
   than risk a scheduled bus time ahead of knowing whether the stop is
@@ -21,14 +23,17 @@ defmodule Foxbus.Adapters.Schedulers.StopClosurePoller do
   require Logger
 
   @interval_ms 5 * 60_000
+  @first_retry_ms 10_000
 
-  def start_link({provider, stop, stop_id}),
+  def start_link({provider, stop, stop_id, delay_ms}),
     do:
-      GenServer.start_link(__MODULE__, {provider, stop, stop_id}, name: :"#{__MODULE__}.#{stop}")
+      GenServer.start_link(__MODULE__, {provider, stop, stop_id, delay_ms},
+        name: :"#{__MODULE__}.#{stop}"
+      )
 
   @impl true
-  def init({provider, stop, stop_id}) do
-    send(self(), :poll)
+  def init({provider, stop, stop_id, delay_ms}) do
+    Process.send_after(self(), :poll, delay_ms)
     {:ok, %{provider: provider, stop: stop, stop_id: stop_id, logged_first_success?: false}}
   end
 
@@ -50,7 +55,8 @@ defmodule Foxbus.Adapters.Schedulers.StopClosurePoller do
           %{state | logged_first_success?: true}
       end
 
-    Process.send_after(self(), :poll, @interval_ms)
+    delay = if state.logged_first_success?, do: @interval_ms, else: @first_retry_ms
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 end

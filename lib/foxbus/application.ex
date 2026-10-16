@@ -3,6 +3,13 @@ defmodule Foxbus.Application do
   use Application
   alias Foxbus.Adapters.Schedulers.{AdaptiveBusPoller, DisruptionPoller, StopClosurePoller}
 
+  # Spread each poller's first fetch out, rather than every one firing its
+  # own HTTPS request (TLS handshake, plus HTML/JSON parsing) in the same
+  # instant at boot — on this single-core device that starved the Carousel
+  # requests into timing out, competing with TfL's for the one scheduler,
+  # once a third stop/provider was added (seen on the real device).
+  @stagger_step_ms 300
+
   @impl true
   def start(_type, _args) do
     # One-time carry-over from the pre-0.3.0 config.exs/screen_power.exs
@@ -22,32 +29,39 @@ defmodule Foxbus.Application do
         {stop, Foxbus.Ports.Provider.resolve(stop.provider)}
       end
 
-    bus_pollers =
-      for {stop, provider} <- stops do
-        Supervisor.child_spec(
-          {AdaptiveBusPoller, {provider, stop.key, stop.stop_id, stop.lines}},
-          id: {:bus_poller, stop.key}
-        )
-      end
+    pollers =
+      stops
+      |> Enum.flat_map(fn {stop, provider} ->
+        [{:bus, stop, provider}] ++
+          if(provider.closures?(), do: [{:closure, stop, provider}], else: []) ++
+          if(provider.disruptions?(), do: [{:disruption, stop, provider}], else: [])
+      end)
+      |> Enum.with_index()
+      |> Enum.map(fn {spec, index} -> child_spec(spec, index * @stagger_step_ms) end)
 
-    closure_pollers =
-      for {stop, provider} <- stops, provider.closures?() do
-        Supervisor.child_spec({StopClosurePoller, {provider, stop.key, stop.stop_id}},
-          id: {:closure_poller, stop.key}
-        )
-      end
-
-    disruption_pollers =
-      for {stop, provider} <- stops, provider.disruptions?() do
-        Supervisor.child_spec(
-          {DisruptionPoller, {provider, stop.key, stop.stop_id, stop.lines}},
-          id: {:disruption_poller, stop.key}
-        )
-      end
-
-    children =
-      [Foxbus.Screens] ++ bus_pollers ++ closure_pollers ++ disruption_pollers
+    children = [Foxbus.Screens | pollers]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Foxbus.Supervisor)
+  end
+
+  defp child_spec({:bus, stop, provider}, delay_ms) do
+    Supervisor.child_spec(
+      {AdaptiveBusPoller, {provider, stop.key, stop.stop_id, stop.lines, delay_ms}},
+      id: {:bus_poller, stop.key}
+    )
+  end
+
+  defp child_spec({:closure, stop, provider}, delay_ms) do
+    Supervisor.child_spec(
+      {StopClosurePoller, {provider, stop.key, stop.stop_id, delay_ms}},
+      id: {:closure_poller, stop.key}
+    )
+  end
+
+  defp child_spec({:disruption, stop, provider}, delay_ms) do
+    Supervisor.child_spec(
+      {DisruptionPoller, {provider, stop.key, stop.stop_id, stop.lines, delay_ms}},
+      id: {:disruption_poller, stop.key}
+    )
   end
 end
