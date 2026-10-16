@@ -45,6 +45,13 @@ defmodule Foxbus.Screens.Layout do
   @white "#FFFFFF"
   @dark "#1C1C1E"
   @dim "#9A9AA0"
+  # TfL's own corporate blue (Pantone 072 C) — an approximation, same spirit
+  # as @blue above, not the exact brand colour value. Used (not the roundel
+  # mark, not the Johnston typeface — TfL's own brand standard explicitly
+  # reserves both for third-party use) to give a TfL-provider screen a
+  # distinct, recognisably "TfL" look with no trademark reproduction: a
+  # plain colour carries no such restriction.
+  @tfl_navy "#0019A8"
   @soon_minutes 10
   @arriving_minutes 5
   @max_rows 4
@@ -64,6 +71,8 @@ defmodule Foxbus.Screens.Layout do
   @type bus_key :: {String.t(), String.t(), Time.t() | nil}
 
   def blue, do: @blue
+  def dark, do: @dark
+  def tfl_navy, do: @tfl_navy
 
   @doc "Screen index after a net number of dial steps (positive clockwise), wrapping."
   @spec navigate(non_neg_integer, pos_integer, integer) :: non_neg_integer
@@ -188,24 +197,38 @@ defmodule Foxbus.Screens.Layout do
   held up rather than gone (see `Foxbus.Screens`, which tracks how long and
   eventually drops it from the list entirely rather than leave it
   `uncertain?` forever).
+
+  `background` is the plain (dark, by default) list-mode background —
+  `:soon`/`:arriving` always use their own orange/green regardless, since
+  that urgency colour matters more than a provider's own look. A
+  TfL-provider screen passes `Layout.tfl_navy/0` here instead, for a
+  distinct, recognisably "TfL" board the rest of the time.
   """
-  @spec stop(String.t(), [Arrival.t()] | nil, non_neg_integer, bell, String.t() | nil, boolean) ::
-          list
+  @spec stop(
+          String.t(),
+          [Arrival.t()] | nil,
+          non_neg_integer,
+          bell,
+          String.t() | nil,
+          boolean,
+          String.t()
+        ) :: list
   def stop(
         title,
         arrivals,
         elapsed_ms \\ 0,
         bell \\ :none,
         disruption \\ nil,
-        uncertain? \\ false
+        uncertain? \\ false,
+        background \\ @dark
       ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
         [
-          blank(),
-          {:text, 160, 54, title, text_opts(24, @white, @dark)},
-          {:text, 160, 140, "No more buses today", text_opts(22, @dim, @dark)}
-        ] ++ warning_line(disruption, @dark)
+          {:background, background},
+          {:text, 160, 54, title, text_opts(24, @white, background)},
+          {:text, 160, 140, "No more buses today", text_opts(22, @dim, background)}
+        ] ++ warning_line(disruption, background)
 
       :list ->
         # The configured title ("To Riverside") names one direction; when the
@@ -215,9 +238,10 @@ defmodule Foxbus.Screens.Layout do
         title_line =
           if multi_destination?(arrivals),
             do: [],
-            else: [{:text, 160, 54, title, text_opts(24, @white, @dark)}]
+            else: [{:text, 160, 54, title, text_opts(24, @white, background)}]
 
-        [blank() | title_line] ++ body(arrivals) ++ warning_line(disruption, @dark)
+        [{:background, background} | title_line] ++
+          body(arrivals, background) ++ warning_line(disruption, background)
 
       {:soon, m} ->
         countdown(title, hd(arrivals), m, @orange, bell, false) ++
@@ -317,12 +341,13 @@ defmodule Foxbus.Screens.Layout do
       else: String.slice(text, 0, max_chars - 1) <> "…"
   end
 
-  defp body(nil), do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, @dark)}]
+  defp body(nil, background),
+    do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, background)}]
 
-  defp body(arrivals) do
+  defp body(arrivals, background) do
     if multi_destination?(arrivals),
-      do: body_with_destinations(arrivals),
-      else: body_rows(arrivals)
+      do: body_with_destinations(arrivals, background),
+      else: body_rows(arrivals, background)
   end
 
   # True once more than one line is watched (a stop's own lines, see
@@ -343,7 +368,7 @@ defmodule Foxbus.Screens.Layout do
   @multi_dest_row_size 30
   @multi_dest_destination_size 18
 
-  defp body_rows(arrivals) do
+  defp body_rows(arrivals, background) do
     arrivals
     |> Enum.take(@max_rows)
     |> Enum.with_index()
@@ -351,11 +376,11 @@ defmodule Foxbus.Screens.Layout do
       color = if a.status == :live, do: @white, else: @dim
 
       {:text, 160, @row_y + i * @row_gap, "#{a.line}  #{Arrival.eta_text(a)}",
-       text_opts(@row_size, color, @dark)}
+       text_opts(@row_size, color, background)}
     end)
   end
 
-  defp body_with_destinations(arrivals) do
+  defp body_with_destinations(arrivals, background) do
     arrivals
     |> Enum.take(@multi_dest_max_rows)
     |> Enum.with_index()
@@ -365,11 +390,11 @@ defmodule Foxbus.Screens.Layout do
 
       [
         {:text, 160, y, "#{a.line}  #{Arrival.eta_text(a)}",
-         text_opts(@multi_dest_row_size, color, @dark)},
+         text_opts(@multi_dest_row_size, color, background)},
         # Shrunk from 24 to 20 chars to match the bigger font — a
         # proportional guess, also unverified.
         {:text, 160, y + 24, truncate(a.destination, 20),
-         text_opts(@multi_dest_destination_size, @dim, @dark)}
+         text_opts(@multi_dest_destination_size, @dim, background)}
       ]
     end)
   end
@@ -396,9 +421,6 @@ defmodule Foxbus.Screens.Layout do
     text = Calendar.strftime(now, "%H:%M")
     ops ++ [{:text, 160, @clock_y, text, text_opts(@clock_size, color, text_bg)}]
   end
-
-  # Bus list screens are dark (and entirely blank once today's buses are done).
-  defp blank, do: {:background, @dark}
 
   defp text_opts(size, color, background),
     do: [size: size, color: color, background: background, align: :center]

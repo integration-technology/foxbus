@@ -77,6 +77,30 @@ defmodule Foxbus.Screens.LayoutTest do
       assert background(ops) == "#1C1C1E"
       assert texts(ops) == ["To Mapleton", "No more buses today"]
     end
+
+    test "a custom background is used in place of the default dark one" do
+      ops =
+        Layout.stop("Amersham", [arrival("Metropolitan", 14)], 0, :none, nil, false, "#0019A8")
+
+      assert background(ops) == "#0019A8"
+
+      assert Enum.all?(ops, fn
+               {:text, _, _, _, opts} -> opts[:background] in [nil, "#0019A8"]
+               _other -> true
+             end)
+    end
+
+    test "a custom background also applies to the empty-board and checking-times cases" do
+      assert background(Layout.stop("Amersham", [], 0, :none, nil, false, "#0019A8")) == "#0019A8"
+
+      assert background(Layout.stop("Amersham", nil, 0, :none, nil, false, "#0019A8")) ==
+               "#0019A8"
+    end
+
+    test "Layout.tfl_navy/0 and Layout.dark/0 expose the colours stop/6 defaults use" do
+      assert Layout.dark() == "#1C1C1E"
+      assert Layout.tfl_navy() =~ ~r/^#[0-9A-F]{6}$/
+    end
   end
 
   describe "a shared stop with more than one destination" do
@@ -143,6 +167,18 @@ defmodule Foxbus.Screens.LayoutTest do
 
     test "the green screen at 5 minutes or less" do
       assert background(Layout.stop("To Mapleton", [arrival("105", 3)])) == @green
+    end
+
+    test "a custom background is ignored while soon/arriving — the urgency colour always wins" do
+      assert background(
+               Layout.stop("Amersham", [arrival("M", 8)], 0, :none, nil, false, "#0019A8")
+             ) ==
+               @orange
+
+      assert background(
+               Layout.stop("Amersham", [arrival("M", 3)], 0, :none, nil, false, "#0019A8")
+             ) ==
+               @green
     end
 
     test "a due bus shows a plain minutes number by default" do

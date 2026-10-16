@@ -111,6 +111,7 @@ defmodule Foxbus.Screens do
     state = %{
       screens: screens,
       titles: Map.new(stops, fn stop -> {stop.key, stop.title} end),
+      backgrounds: Map.new(stops, fn stop -> {stop.key, stop_background(stop.provider)} end),
       index: default_index,
       arrivals: %{},
       fetched_at: %{},
@@ -140,6 +141,12 @@ defmodule Foxbus.Screens do
   # publish a closure status for it — pre-seed it as "open" here instead of
   # leaving it absent, which would otherwise show "Checking times" forever
   # (closure_status/2 reads an absent key as "no check has landed yet").
+  # A provider gets its own recognisable look on its stop screens' plain
+  # (non-urgent) background — see Layout.stop/6's moduledoc. Just TfL for
+  # now; every other provider keeps the ordinary dark background.
+  defp stop_background(:tfl), do: Layout.tfl_navy()
+  defp stop_background(_provider), do: Layout.dark()
+
   defp closures_without_poller(stops) do
     stops
     |> Enum.reject(fn stop -> Foxbus.Ports.Provider.resolve(stop.provider).closures?() end)
@@ -694,7 +701,7 @@ defmodule Foxbus.Screens do
             # than risk a scheduled, non-arriving bus time ahead of knowing
             # whether this stop is actually closed.
             :error ->
-              Layout.stop(state.titles[stop], nil)
+              Layout.stop(state.titles[stop], nil, 0, :none, nil, false, state.backgrounds[stop])
 
             {:ok, nil} ->
               Layout.stop(
@@ -703,7 +710,8 @@ defmodule Foxbus.Screens do
                 elapsed(state, stop),
                 bell(state, stop),
                 disruption(state, stop),
-                uncertain?(state, stop)
+                uncertain?(state, stop),
+                state.backgrounds[stop]
               )
 
             {:ok, explanation} ->
