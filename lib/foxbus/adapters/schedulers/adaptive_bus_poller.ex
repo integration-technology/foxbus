@@ -22,8 +22,11 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   @tight_threshold_minutes 5
   @no_service_retry_ms 30 * 60_000
 
-  def start_link({stop, stop_id}),
-    do: GenServer.start_link(__MODULE__, {stop, stop_id}, name: :"#{__MODULE__}.#{stop}")
+  def start_link({provider, stop, stop_id, lines}),
+    do:
+      GenServer.start_link(__MODULE__, {provider, stop, stop_id, lines},
+        name: :"#{__MODULE__}.#{stop}"
+      )
 
   @doc """
   Forces an immediate poll, bypassing the scheduled delay — for
@@ -40,9 +43,17 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   def poll_now(stop), do: GenServer.cast(:"#{__MODULE__}.#{stop}", :poll_now)
 
   @impl true
-  def init({stop, stop_id}) do
+  def init({provider, stop, stop_id, lines}) do
     send(self(), :poll)
-    {:ok, %{stop: stop, stop_id: stop_id, logged_first_success?: false}}
+
+    {:ok,
+     %{
+       provider: provider,
+       stop: stop,
+       stop_id: stop_id,
+       lines: lines,
+       logged_first_success?: false
+     }}
   end
 
   @impl true
@@ -52,7 +63,8 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   def handle_cast(:poll_now, state), do: do_poll(state)
 
   defp do_poll(state) do
-    result = Foxbus.Arrivals.fetch_and_publish(state.stop, state.stop_id)
+    result =
+      Foxbus.Arrivals.fetch_and_publish(state.provider, state.stop, state.stop_id, state.lines)
 
     state =
       case result do

@@ -1,10 +1,19 @@
 defmodule Foxbus.ArrivalsTest do
-  # Swaps the configured adapters, so not async.
+  # Swaps the configured sink, so not async.
   use ExUnit.Case, async: false
   alias Foxbus.Domain.Arrival
 
-  defmodule TestSource do
-    @behaviour Foxbus.Ports.ArrivalsSource
+  defmodule TestProvider do
+    @behaviour Foxbus.Ports.Provider
+    @impl true
+    def id, do: :test
+    @impl true
+    def label, do: "Test"
+    @impl true
+    def disruptions?, do: false
+    @impl true
+    def closures?, do: false
+
     @impl true
     def fetch_arrivals("fail"), do: {:error, :timeout}
 
@@ -33,46 +42,41 @@ defmodule Foxbus.ArrivalsTest do
   end
 
   setup do
-    old =
-      {Application.get_env(:foxbus, :arrivals_source),
-       Application.get_env(:foxbus, :arrivals_sink), Application.get_env(:foxbus, :lines)}
-
-    Application.put_env(:foxbus, :arrivals_source, TestSource)
+    old = Application.get_env(:foxbus, :arrivals_sink)
     Application.put_env(:foxbus, :arrivals_sink, TestSink)
 
     on_exit(fn ->
-      Application.put_env(:foxbus, :arrivals_source, elem(old, 0))
-      Application.put_env(:foxbus, :arrivals_sink, elem(old, 1))
-      Application.put_env(:foxbus, :lines, elem(old, 2))
+      Application.put_env(:foxbus, :arrivals_sink, old)
     end)
   end
 
   test "fetches soonest first and publishes to the sink" do
-    assert {:ok, arrivals} = Foxbus.Arrivals.fetch_and_publish(:mapleton, "000000000003")
+    assert {:ok, arrivals} =
+             Foxbus.Arrivals.fetch_and_publish(TestProvider, :mapleton, "000000000003", [])
+
     assert Enum.map(arrivals, & &1.eta_minutes) == [3, 12, 30]
     assert_received {:published, :mapleton, ^arrivals}
   end
 
   test "errors are returned and nothing is published" do
-    assert {:error, :timeout} = Foxbus.Arrivals.fetch_and_publish(:mapleton, "fail")
+    assert {:error, :timeout} =
+             Foxbus.Arrivals.fetch_and_publish(TestProvider, :mapleton, "fail", [])
+
     refute_received {:published, _, _}
   end
 
-  test "filters out lines not in the configured list" do
-    Application.put_env(:foxbus, :lines, ["105"])
-    assert {:ok, arrivals} = Foxbus.Arrivals.fetch("mixed")
+  test "filters out lines not in the given list" do
+    assert {:ok, arrivals} = Foxbus.Arrivals.fetch(TestProvider, "mixed", ["105"])
     assert Enum.map(arrivals, & &1.line) == ["105", "105"]
   end
 
   test "a shared stop's several watched lines are shown together, interleaved by time" do
-    Application.put_env(:foxbus, :lines, ["1", "105"])
-    assert {:ok, arrivals} = Foxbus.Arrivals.fetch("mixed")
+    assert {:ok, arrivals} = Foxbus.Arrivals.fetch(TestProvider, "mixed", ["1", "105"])
     assert Enum.map(arrivals, &{&1.line, &1.eta_minutes}) == [{"1", 3}, {"105", 12}, {"105", 30}]
   end
 
-  test "an empty configured list means no filtering at all" do
-    Application.put_env(:foxbus, :lines, [])
-    assert {:ok, arrivals} = Foxbus.Arrivals.fetch("mixed")
+  test "an empty list of lines means no filtering at all" do
+    assert {:ok, arrivals} = Foxbus.Arrivals.fetch(TestProvider, "mixed", [])
     assert length(arrivals) == 4
   end
 

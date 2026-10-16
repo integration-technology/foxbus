@@ -105,19 +105,19 @@ defmodule Foxbus.Screens do
     schedule_tick()
     auto_advance_timer = Process.send_after(self(), :auto_advance, @auto_advance_ms)
 
-    screens = [:splash | Enum.map(stops, &elem(&1, 0))]
+    screens = [:splash | Enum.map(stops, & &1.key)]
     default_index = Enum.find_index(screens, &(&1 == Foxbus.Config.default_screen())) || 0
 
     state = %{
       screens: screens,
-      titles: Map.new(stops, fn {key, _id, title} -> {key, title} end),
+      titles: Map.new(stops, fn stop -> {stop.key, stop.title} end),
       index: default_index,
       arrivals: %{},
       fetched_at: %{},
       due_since: %{},
       bells: %{},
       disruptions: %{},
-      closures: %{},
+      closures: closures_without_poller(stops),
       temperature: nil,
       background: background,
       icons: Application.app_dir(:foxbus, ["priv", "MaterialIcons-Regular.ttf"]),
@@ -133,6 +133,17 @@ defmodule Foxbus.Screens do
     }
 
     {:ok, render(state)}
+  end
+
+  # A stop whose provider has no stop-closure capability never gets a
+  # StopClosurePoller (see Foxbus.Application), so nothing would ever
+  # publish a closure status for it — pre-seed it as "open" here instead of
+  # leaving it absent, which would otherwise show "Checking times" forever
+  # (closure_status/2 reads an absent key as "no check has landed yet").
+  defp closures_without_poller(stops) do
+    stops
+    |> Enum.reject(fn stop -> Foxbus.Ports.Provider.resolve(stop.provider).closures?() end)
+    |> Map.new(fn stop -> {stop.key, nil} end)
   end
 
   @impl true

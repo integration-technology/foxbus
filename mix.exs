@@ -39,20 +39,28 @@ defmodule Foxbus.MixProject do
         # Placeholder stops — see the README's "Run foxbus on your own Nest"
         # for finding your own ATCO codes and pointing these at them (either
         # here, or at runtime without a rebuild or redeploy, via
-        # Foxbus.Config / platform/storage.sh).
+        # Foxbus.Config / platform/storage.sh). Each stop names its own
+        # provider (see Foxbus.Ports.Provider.all/0) and watched lines — a
+        # shared stop can be served by more than one route; list them all
+        # and they're interleaved by time.
         stops: [
-          {:towards_somewhere, "000000000001", "To Somewhere"},
-          {:towards_elsewhere, "000000000002", "To Elsewhere"}
+          %{
+            key: :towards_somewhere,
+            provider: :carousel,
+            stop_id: "000000000001",
+            title: "To Somewhere",
+            lines: ["104", "105"]
+          },
+          %{
+            key: :towards_elsewhere,
+            provider: :carousel,
+            stop_id: "000000000002",
+            title: "To Elsewhere",
+            lines: ["104", "105"]
+          }
         ],
-        arrivals_source: Foxbus.Adapters.Sources.CarouselScrapeSource,
         arrivals_sink: Foxbus.Adapters.Sinks.ScreensSink,
-        # A shared stop can be served by more than one route — list them all
-        # here and they're interleaved by time; Foxbus.Arrivals filters the
-        # scraped board down to just these lines.
-        lines: ["104", "105"],
-        disruptions_source: Foxbus.Adapters.Sources.CarouselDisruptionsSource,
         disruptions_sink: Foxbus.Adapters.Sinks.ScreensSink,
-        stop_closure_source: Foxbus.Adapters.Sources.CarouselStopClosureSource,
         stop_closure_sink: Foxbus.Adapters.Sinks.ScreensSink,
         wifi_source: Foxbus.Adapters.Sources.NestGen2WifiSource,
         assets_dir: "/media/scratch/.nest_gen2_sdk/foxbus",

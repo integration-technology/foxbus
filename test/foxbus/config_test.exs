@@ -37,34 +37,30 @@ defmodule Foxbus.ConfigTest do
   defp old_file_path,
     do: Path.join(@tmp_dir, "foxbus_config_test_#{System.unique_integer([:positive])}.exs")
 
-  test "falls back to mix.exs' env when Storage has nothing" do
-    Application.put_env(:foxbus, :stops, [{:a, "1", "A"}])
-    Application.put_env(:foxbus, :lines, ["105"])
+  defp stop(key, title, stop_id, lines \\ []),
+    do: %{key: key, provider: :carousel, stop_id: stop_id, title: title, lines: lines}
 
-    assert Foxbus.Config.stops() == [{:a, "1", "A"}]
-    assert Foxbus.Config.lines() == ["105"]
+  test "falls back to mix.exs' env when Storage has nothing" do
+    Application.put_env(:foxbus, :stops, [stop(:a, "A", "1")])
+
+    assert Foxbus.Config.stops() == [stop(:a, "A", "1")]
     assert Foxbus.Config.default_screen() == :splash
   end
 
   test "reads back whatever's in Storage" do
-    NestGen2.Storage.put(:stops, [{:towards_a, "1", "To A"}, {:towards_b, "2", "To B"}],
+    NestGen2.Storage.put(:stops, [stop(:towards_a, "To A", "1"), stop(:towards_b, "To B", "2")],
       app: :foxbus
     )
 
-    NestGen2.Storage.put(:lines, ["104", "105"], app: :foxbus)
     NestGen2.Storage.put(:default_screen, :towards_a, app: :foxbus)
 
-    assert Foxbus.Config.lines() == ["104", "105"]
     assert Foxbus.Config.default_screen() == :towards_a
-    assert Foxbus.Config.stops() == [{:towards_a, "1", "To A"}, {:towards_b, "2", "To B"}]
+    assert Foxbus.Config.stops() == [stop(:towards_a, "To A", "1"), stop(:towards_b, "To B", "2")]
   end
 
   test "a key Storage doesn't have still falls back to mix.exs' env" do
-    Application.put_env(:foxbus, :lines, ["105"])
-    NestGen2.Storage.put(:stops, [{:a, "1", "A"}], app: :foxbus)
-
-    assert Foxbus.Config.stops() == [{:a, "1", "A"}]
-    assert Foxbus.Config.lines() == ["105"]
+    Application.put_env(:foxbus, :stops, [stop(:a, "A", "1")])
+    assert Foxbus.Config.stops() == [stop(:a, "A", "1")]
   end
 
   describe "migrate_from_file/0" do
@@ -126,6 +122,50 @@ defmodule Foxbus.ConfigTest do
       assert Foxbus.Config.stops() == Application.fetch_env!(:foxbus, :stops)
 
       File.rm(path)
+    end
+  end
+
+  describe "migrate_legacy_stops/0" do
+    test "turns old {key, stop_id, title} tuples into the new per-stop map shape" do
+      NestGen2.Storage.put(
+        :stops,
+        [{:towards_a, "1", "To A"}, {:towards_b, "2", "To B"}],
+        app: :foxbus
+      )
+
+      NestGen2.Storage.put(:lines, ["104", "105"], app: :foxbus)
+
+      Foxbus.Config.migrate_legacy_stops()
+
+      assert Foxbus.Config.stops() == [
+               stop(:towards_a, "To A", "1", ["104", "105"]),
+               stop(:towards_b, "To B", "2", ["104", "105"])
+             ]
+    end
+
+    test "every migrated stop defaults to the carousel provider" do
+      NestGen2.Storage.put(:stops, [{:a, "1", "A"}], app: :foxbus)
+      Foxbus.Config.migrate_legacy_stops()
+
+      assert [%{provider: :carousel}] = Foxbus.Config.stops()
+    end
+
+    test "a missing old global lines value migrates as an empty filter" do
+      NestGen2.Storage.put(:stops, [{:a, "1", "A"}], app: :foxbus)
+      Foxbus.Config.migrate_legacy_stops()
+
+      assert [%{lines: []}] = Foxbus.Config.stops()
+    end
+
+    test "a no-op once stops is already the new map shape" do
+      NestGen2.Storage.put(:stops, [stop(:a, "A", "1", ["999"])], app: :foxbus)
+      Foxbus.Config.migrate_legacy_stops()
+
+      assert Foxbus.Config.stops() == [stop(:a, "A", "1", ["999"])]
+    end
+
+    test "a no-op with nothing in Storage yet" do
+      assert Foxbus.Config.migrate_legacy_stops() == :ok
     end
   end
 end

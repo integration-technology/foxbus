@@ -10,30 +10,38 @@ defmodule Foxbus.Application do
     # Storage already has the values. See Foxbus.Config and
     # Foxbus.ScreenPower's moduledocs.
     Foxbus.Config.migrate_from_file()
+    Foxbus.Config.migrate_legacy_stops()
     Foxbus.ScreenPower.migrate_from_file()
 
     # NestGen2.Power always starts from its own defaults — put back whatever
     # was last saved from the settings UI, if anything (see Foxbus.ScreenPower).
     Foxbus.ScreenPower.apply_saved()
 
-    stops = Foxbus.Config.stops()
+    stops =
+      for stop <- Foxbus.Config.stops() do
+        {stop, Foxbus.Ports.Provider.resolve(stop.provider)}
+      end
 
     bus_pollers =
-      for {stop, stop_id, _title} <- stops do
-        Supervisor.child_spec({AdaptiveBusPoller, {stop, stop_id}}, id: {:bus_poller, stop})
+      for {stop, provider} <- stops do
+        Supervisor.child_spec(
+          {AdaptiveBusPoller, {provider, stop.key, stop.stop_id, stop.lines}},
+          id: {:bus_poller, stop.key}
+        )
       end
 
     closure_pollers =
-      for {stop, stop_id, _title} <- stops do
-        Supervisor.child_spec({StopClosurePoller, {stop, stop_id}}, id: {:closure_poller, stop})
+      for {stop, provider} <- stops, provider.closures?() do
+        Supervisor.child_spec({StopClosurePoller, {provider, stop.key, stop.stop_id}},
+          id: {:closure_poller, stop.key}
+        )
       end
 
-    lines = Foxbus.Config.lines()
-
     disruption_pollers =
-      for {stop, stop_id, _title} <- stops do
-        Supervisor.child_spec({DisruptionPoller, {stop, stop_id, lines}},
-          id: {:disruption_poller, stop}
+      for {stop, provider} <- stops, provider.disruptions?() do
+        Supervisor.child_spec(
+          {DisruptionPoller, {provider, stop.key, stop.stop_id, stop.lines}},
+          id: {:disruption_poller, stop.key}
         )
       end
 

@@ -95,27 +95,40 @@ there means Carousel doesn't serve that stop.
   rebuild" below. This is the easier way to try a stop before committing to
   it.
 - Compiled in, as `mix.exs`'s own defaults (so a bare `deploy_app.sh` with
-  no Storage override set still shows the right thing) — edit the `stops`,
-  `lines`, and (if you want one direction to show by default) matching
-  `Foxbus.Config.default_screen/0` fallback in `mix.exs`'s `env`.
+  no Storage override set still shows the right thing) — edit `stops`, and
+  (if you want one direction to show by default) the matching
+  `Foxbus.Config.default_screen/0` fallback, in `mix.exs`'s `env`.
 
 Either way, the shape is:
 
 ```elixir
 stops: [
-  {:towards_somewhere, "<your-stop-1-atco-code>", "To Somewhere"},
-  {:towards_elsewhere, "<your-stop-2-atco-code>", "To Elsewhere"}
-],
-lines: ["<route-number>"]
+  %{
+    key: :towards_somewhere,
+    provider: :carousel,
+    stop_id: "<your-stop-1-atco-code>",
+    title: "To Somewhere",
+    lines: ["<route-number>"]
+  },
+  %{
+    key: :towards_elsewhere,
+    provider: :carousel,
+    stop_id: "<your-stop-2-atco-code>",
+    title: "To Elsewhere",
+    lines: ["<route-number>"]
+  }
+]
 ```
 
-`:towards_somewhere`/`:towards_elsewhere` are just atoms you pick to name
-each screen internally — they can be anything, and aren't shown on screen.
-The ATCO codes and the `"To Somewhere"` title text are the parts that are
-actually about your stops; replace both, along with `lines` (the route
-number(s) to watch at that stop — a list, since a shared stop can see more
-than one route; see `Foxbus.Config`'s moduledoc). One stop works too, with
-a single `{atom, code, title}` tuple.
+`key` is just an atom you pick to name each screen internally — it can be
+anything, and isn't shown on screen. `provider` names which data source
+this screen uses (`:carousel` for a Carousel bus stop — see
+`Foxbus.Ports.Provider.all/0` for what else is available). The ATCO code
+and the `"To Somewhere"` title text are the parts that are actually about
+your stop; replace both, along with `lines` (the route number(s) to watch
+at that stop — a list, since a shared stop can see more than one route;
+`[]` means no filtering, show everything; see `Foxbus.Config`'s
+moduledoc). One stop works too, with a single map.
 
 **3. Deploy.** From the SDK folder, with foxbus cloned alongside it:
 
@@ -134,8 +147,7 @@ at start (the pollers are built from them then), so still need the app
 restarted (`app_watchdog.sh` or `kill -TERM 1`) to take effect:
 
 ```sh
-../nest_gen2_sdk/platform/storage.sh foxbus put stops '[{:towards_somewhere, "<code>", "To Somewhere"}, {:towards_elsewhere, "<code>", "To Elsewhere"}]'
-../nest_gen2_sdk/platform/storage.sh foxbus put lines '["104"]'
+../nest_gen2_sdk/platform/storage.sh foxbus put stops '[%{key: :towards_somewhere, provider: :carousel, stop_id: "<code>", title: "To Somewhere", lines: ["104"]}, %{key: :towards_elsewhere, provider: :carousel, stop_id: "<code>", title: "To Elsewhere", lines: ["104"]}]'
 ../nest_gen2_sdk/platform/storage.sh foxbus put default_screen ':towards_somewhere'
 ```
 
@@ -147,8 +159,12 @@ shows what's currently set.
 Before nest_gen2 0.3.0 this was a hand-edited `config.exs` file
 (`config.exs.example` was its template). `Foxbus.Config.migrate_from_file/0`
 carries an existing one's values into Storage once, at the next boot after
-upgrading, then leaves the old file alone — nothing needs doing by hand to
-keep an existing install's route and stops.
+upgrading, then leaves the old file alone. A further one-time migration,
+`Foxbus.Config.migrate_legacy_stops/0`, carries an older Storage install's
+flat `{key, code, title}` stops (with one shared `lines` list) into the
+shape above, defaulting every migrated stop to `provider: :carousel` — in
+both cases, nothing needs doing by hand to keep an existing install's route
+and stops.
 
 ## Wi-Fi settings
 

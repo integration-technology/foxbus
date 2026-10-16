@@ -13,8 +13,8 @@ defmodule Foxbus.Screens.Layout do
 
     * more than 10 minutes away — the list of buses on dark grey (blank when
       there are none left today); if the ones shown go to more than one
-      destination — a shared stop watching several lines (see
-      `Foxbus.Config.lines/0`) — each row gets its own destination under it,
+      destination — a shared stop watching several lines (a stop's own
+      `lines`, see `Foxbus.Config`) — each row gets its own destination under it,
       since the screen's one configured title can't speak for all of them.
       No alarm can be set from here — only the countdown screens below have
       a single bus to arm
@@ -325,7 +325,8 @@ defmodule Foxbus.Screens.Layout do
       else: body_rows(arrivals)
   end
 
-  # True once more than one line is watched (see Foxbus.Config.lines/0) and
+  # True once more than one line is watched (a stop's own lines, see
+  # Foxbus.Config) and
   # they genuinely go different places — the stop's single configured title
   # ("To Riverside") is then wrong for whichever ones don't terminate there, so
   # each row needs its own destination instead of relying on the title.
