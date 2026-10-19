@@ -36,6 +36,16 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   ordinary weekday schedule, not the holiday one, since there's no holiday
   calendar here to check against.
 
+  **Partial responses**: confirmed live that `/Line/{line}/Timetable/{stop}`
+  sometimes comes back with only one day-type's schedule instead of all
+  four (looks like a TfL backend cache inconsistency, not something this
+  app's requests trigger). Caching that for the whole day would make a
+  stop show nothing, or the wrong day's times, until the next fetch — so a
+  response is only accepted and cached when it has all four day-types; an
+  incomplete one is treated as a fetch error, and the previous day's stale
+  cache (if any) is kept and reused rather than overwriting it with
+  something worse.
+
   No stop-closure concept here (`closures?/0` is false) — TfL has line
   status, not a per-station "this stop is closed" notice.
 
@@ -55,6 +65,7 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
 
   @base_url "https://api.tfl.gov.uk"
   @upcoming_count 3
+  @day_types ["Monday - Thursday", "Friday", "Saturdays and Public Holidays", "Sunday"]
 
   @impl true
   def id, do: :tfl
@@ -132,15 +143,23 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   defp cached_schedules(stop_id, line) do
     key = cache_key(stop_id, line)
     today = NaiveDateTime.to_date(Foxbus.LondonTime.now())
+    cached = Storage.get(key, nil, app: :foxbus)
 
-    case Storage.get(key, nil, app: :foxbus) do
+    case cached do
       %{fetched_on: ^today, schedules: schedules} ->
         {:ok, schedules}
 
       _stale_or_missing ->
-        with {:ok, schedules} <- fetch_and_parse_timetable(stop_id, line) do
-          Storage.put(key, %{fetched_on: today, schedules: schedules}, app: :foxbus)
-          {:ok, schedules}
+        case fetch_and_parse_timetable(stop_id, line) do
+          {:ok, schedules} ->
+            Storage.put(key, %{fetched_on: today, schedules: schedules}, app: :foxbus)
+            {:ok, schedules}
+
+          {:error, _reason} = error ->
+            case cached do
+              %{schedules: schedules} -> {:ok, schedules}
+              _no_previous_cache -> error
+            end
         end
     end
   end
@@ -154,9 +173,19 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
 
   defp fetch_and_parse_timetable(stop_id, line) do
     with {:ok, json} <- TflHttp.get(url("/Line/#{line_id(line)}/Timetable/#{stop_id}")) do
-      {:ok, parse_timetable(json)}
+      schedules = parse_timetable(json)
+
+      if complete_timetable?(schedules) do
+        {:ok, schedules}
+      else
+        {:error, :incomplete_timetable}
+      end
     end
   end
+
+  @doc "True only when all four day-types are present — see the moduledoc on partial responses."
+  @spec complete_timetable?(%{String.t() => list}) :: boolean
+  def complete_timetable?(schedules), do: Enum.all?(@day_types, &Map.has_key?(schedules, &1))
 
   @doc """
   The timetable response's `schedules` (one per day-type, e.g.

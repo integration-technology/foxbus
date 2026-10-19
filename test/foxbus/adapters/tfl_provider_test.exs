@@ -83,6 +83,27 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
     end
   end
 
+  describe "complete_timetable?/1" do
+    test "true when all four day-types are present" do
+      schedules = %{
+        "Monday - Thursday" => [],
+        "Friday" => [],
+        "Saturdays and Public Holidays" => [],
+        "Sunday" => []
+      }
+
+      assert TflProvider.complete_timetable?(schedules)
+    end
+
+    test "false on a partial response (confirmed live: TfL sometimes returns only Sunday)" do
+      refute TflProvider.complete_timetable?(%{"Sunday" => [{6, 59, "Aldgate"}]})
+    end
+
+    test "false when empty" do
+      refute TflProvider.complete_timetable?(%{})
+    end
+  end
+
   describe "next_departures/2" do
     test "keeps only departures at or after now, soonest first" do
       departures = [{5, 22, "A"}, {6, 4, "B"}, {9, 0, "C"}]
