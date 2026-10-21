@@ -130,6 +130,15 @@ at that stop — a list, since a shared stop can see more than one route;
 `[]` means no filtering, show everything; see `Foxbus.Config`'s
 moduledoc). One stop works too, with a single map.
 
+If `lines` watches a route that doesn't always end up at the same place
+(a loop service, or a shared stop watching more than one route), the
+screen can't show a single `title` once the listed buses disagree on
+where they're going — it shows each bus's own destination instead. Add
+an optional `stop_name` (the physical stop's own name, e.g. `"Chalk
+Hill"`) to that stop's map and a small fixed line names which stop and
+direction this is (`"Chalk Hill → Somewhere"`) above the per-bus
+destinations, instead of dropping the title outright.
+
 **3. Deploy.** From the SDK folder, with foxbus cloned alongside it:
 
 ```sh

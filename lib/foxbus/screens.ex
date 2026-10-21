@@ -111,6 +111,7 @@ defmodule Foxbus.Screens do
     state = %{
       screens: screens,
       titles: Map.new(stops, fn stop -> {stop.key, stop.title} end),
+      stop_names: Map.new(stops, fn stop -> {stop.key, Map.get(stop, :stop_name)} end),
       backgrounds: Map.new(stops, fn stop -> {stop.key, stop_background(stop.provider)} end),
       index: default_index,
       arrivals: %{},
@@ -701,7 +702,16 @@ defmodule Foxbus.Screens do
             # than risk a scheduled, non-arriving bus time ahead of knowing
             # whether this stop is actually closed.
             :error ->
-              Layout.stop(state.titles[stop], nil, 0, :none, nil, false, state.backgrounds[stop])
+              Layout.stop(
+                state.titles[stop],
+                nil,
+                0,
+                :none,
+                nil,
+                false,
+                state.backgrounds[stop],
+                state.stop_names[stop]
+              )
 
             {:ok, nil} ->
               Layout.stop(
@@ -711,7 +721,8 @@ defmodule Foxbus.Screens do
                 bell(state, stop),
                 disruption(state, stop),
                 uncertain?(state, stop),
-                state.backgrounds[stop]
+                state.backgrounds[stop],
+                state.stop_names[stop]
               )
 
             {:ok, explanation} ->

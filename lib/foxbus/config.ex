@@ -23,7 +23,8 @@ defmodule Foxbus.Config do
           provider: :carousel,
           stop_id: "000000000001",
           title: "To Somewhere",
-          lines: ["104"]
+          lines: ["104"],
+          stop_name: "Mapleton"
         }
       ]
       default_screen: :towards_somewhere
@@ -33,6 +34,13 @@ defmodule Foxbus.Config do
   stop can be served by more than one route, and `Foxbus.Arrivals` filters
   the fetched board down to just these — listing several here shows all of
   them, interleaved by time; an empty list means no filtering at all.
+
+  `stop_name` is optional — omit the key entirely for a stop that doesn't
+  need it. It's the physical stop's own name, distinct from `title`'s
+  direction ("To Somewhere"): used only when the watched buses go to more
+  than one destination, so `title` alone can no longer speak for the whole
+  screen — see `Foxbus.Screens.Layout.stop/8`, which then shows a fixed
+  "Mapleton → Somewhere" line instead of the usual title.
 
   Before nest_gen2 0.3.0 these came from a hand-rolled file, `config.exs`
   next to the other device assets. `migrate_from_file/0`, called once at
@@ -52,11 +60,12 @@ defmodule Foxbus.Config do
   alias NestGen2.Storage
 
   @type stop :: %{
-          key: atom,
-          provider: atom,
-          stop_id: String.t(),
-          title: String.t(),
-          lines: [String.t()]
+          required(:key) => atom,
+          required(:provider) => atom,
+          required(:stop_id) => String.t(),
+          required(:title) => String.t(),
+          required(:lines) => [String.t()],
+          optional(:stop_name) => String.t()
         }
 
   @spec stops() :: [stop]

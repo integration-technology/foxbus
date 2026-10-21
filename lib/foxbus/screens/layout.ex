@@ -59,6 +59,10 @@ defmodule Foxbus.Screens.Layout do
   @row_gap 40
   @multi_dest_max_rows 3
   @multi_dest_row_gap 54
+  # Unverified pixel budget, like the rest of this file — check against a
+  # real/host capture before trusting it beyond a rough guess.
+  @direction_size 18
+  @direction_chars 26
   @clock_y 20
   @clock_size 20
   @splash_clock_y 46
@@ -203,6 +207,14 @@ defmodule Foxbus.Screens.Layout do
   that urgency colour matters more than a provider's own look. A
   TfL-provider screen passes `Layout.tfl_navy/0` here instead, for a
   distinct, recognisably "TfL" board the rest of the time.
+
+  `stop_name` (optional, see `Foxbus.Config`) is the physical stop's own
+  name — shown as a small fixed "Mapleton → Somewhere" line in place of
+  the usual title whenever the watched buses go to more than one
+  destination (see `multi_destination?/1`): without it, that line simply
+  says which stop you're at, since the per-bus destinations below it
+  already say where each one terminates. Left nil (the default), a
+  multi-destination screen drops the title entirely, as before.
   """
   @spec stop(
           String.t(),
@@ -211,7 +223,8 @@ defmodule Foxbus.Screens.Layout do
           bell,
           String.t() | nil,
           boolean,
-          String.t()
+          String.t(),
+          String.t() | nil
         ) :: list
   def stop(
         title,
@@ -220,7 +233,8 @@ defmodule Foxbus.Screens.Layout do
         bell \\ :none,
         disruption \\ nil,
         uncertain? \\ false,
-        background \\ @dark
+        background \\ @dark,
+        stop_name \\ nil
       ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
@@ -233,12 +247,24 @@ defmodule Foxbus.Screens.Layout do
       :list ->
         # The configured title ("To Riverside") names one direction; when the
         # shown buses go to more than one place (a shared stop watching
-        # several lines), it would contradict half of them, so it's dropped
-        # rather than shown alongside destinations that disagree with it.
+        # several lines), it would contradict half of them, so it's replaced
+        # by a small fixed "stop → direction" line (if stop_name is set) or
+        # dropped entirely (if not), rather than shown alongside destinations
+        # that disagree with it.
         title_line =
-          if multi_destination?(arrivals),
-            do: [],
-            else: [{:text, 160, 54, title, text_opts(24, @white, background)}]
+          cond do
+            multi_destination?(arrivals) and stop_name ->
+              [
+                {:text, 160, 54, truncate(direction_label(stop_name, title), @direction_chars),
+                 text_opts(@direction_size, @dim, background)}
+              ]
+
+            multi_destination?(arrivals) ->
+              []
+
+            true ->
+              [{:text, 160, 54, title, text_opts(24, @white, background)}]
+          end
 
         [{:background, background} | title_line] ++
           body(arrivals, background) ++ warning_line(disruption, background)
@@ -359,6 +385,14 @@ defmodule Foxbus.Screens.Layout do
 
   defp multi_destination?(arrivals),
     do: arrivals |> Enum.map(& &1.destination) |> Enum.uniq() |> length() > 1
+
+  # "Mapleton → Somewhere" — the physical stop, then the configured
+  # title's own direction with its "To " dropped (redundant once it
+  # follows an arrow).
+  defp direction_label(stop_name, title), do: "#{stop_name} → #{strip_to(title)}"
+
+  defp strip_to("To " <> rest), do: rest
+  defp strip_to(title), do: title
 
   # Row text sizes were bumped up from the original 30/26/15 (Owain found
   # the list hard to read without glasses) — unverified on the real device,

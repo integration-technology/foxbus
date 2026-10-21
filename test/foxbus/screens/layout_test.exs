@@ -138,6 +138,55 @@ defmodule Foxbus.Screens.LayoutTest do
       buses = for m <- 11..16, do: arrival_to("104", m, "Dest #{m}")
       assert length(texts(Layout.stop("To Riverside", buses))) == 3 * 2
     end
+
+    test "with a stop_name, a fixed stop-and-direction line replaces the title" do
+      ops =
+        Layout.stop(
+          "To Riverside",
+          [arrival_to("104", 11, "Riverside"), arrival_to("105", 18, "Hilltown")],
+          0,
+          :none,
+          nil,
+          false,
+          "#1C1C1E",
+          "Mapleton"
+        )
+
+      assert texts(ops) == [
+               "Mapleton → Riverside",
+               "104  11 min",
+               "Riverside",
+               "105  18 min",
+               "Hilltown"
+             ]
+    end
+
+    test "without a stop_name, the title is dropped as before" do
+      ops =
+        Layout.stop("To Riverside", [
+          arrival_to("104", 11, "Riverside"),
+          arrival_to("105", 18, "Hilltown")
+        ])
+
+      refute "Mapleton → Riverside" in texts(ops)
+      refute "To Riverside" in texts(ops)
+    end
+
+    test "stop_name is ignored when every bus shares one destination" do
+      ops =
+        Layout.stop(
+          "To Mapleton",
+          [arrival_to("105", 14, "Mapleton"), arrival_to("1", 40, "Mapleton")],
+          0,
+          :none,
+          nil,
+          false,
+          "#1C1C1E",
+          "Chalk Hill"
+        )
+
+      assert texts(ops) == ["To Mapleton", "105  14 min", "1  40 min"]
+    end
   end
 
   describe "mode/2 and the countdown" do
