@@ -15,12 +15,24 @@ defmodule Foxbus.Adapters.Sources.BustimesProvider do
   the departures table, which is exactly how a physical stop works: a
   rider waiting for "the 34" doesn't care which company's bus turns up).
 
-  **Scheduled only, like `TflProvider`'s Timetable approach** — confirmed
-  live that the stop page's "Scheduled" column shows no live/real-time
-  indicator for any service here, so there's no live data to prefer. No
-  caching, unlike `TflProvider`: the `/departures` fragment is small (a
-  handful of rows, not TfL's whole-day timetable), so it's cheap to
-  refetch on every poll, same as `CarouselScrapeSource`.
+  **Scheduled by default, live when bustimes.org has it**: confirmed live
+  that a vehicle currently being tracked gets a fourth "Expected" column
+  (empty for the other rows) alongside the usual "Scheduled" one, and its
+  destination cell gains a nested `<div class="vehicle">` (fleet number
+  and registration) that has nothing to do with the destination text —
+  stripped out rather than left to leak into `destination` (see
+  `destination_text/1`). The table's column count isn't fixed — a 3-cell
+  row (no live vehicle anywhere in the table) and a 4-cell row (the
+  "Expected" column present, filled or empty per row) both occur, so
+  `to_arrival/2` reads cells by position with the fourth optional, not by
+  a fixed count — an earlier version required exactly 3 cells and so
+  silently dropped an entire table the moment any one row in it gained a
+  fourth. When "Expected" is present and filled, it wins over "Scheduled"
+  for both the ETA and `status: :live`, same due/live split as
+  `CarouselScrapeSource`; otherwise it's `:scheduled`, unchanged. No
+  caching: the `/departures` fragment is small (a handful of rows, not
+  TfL's whole-day timetable), so it's cheap to refetch on every poll,
+  same as `CarouselScrapeSource`.
 
   **Scope, and why the fetch path avoids `?date=`**: bustimes.org's own
   robots.txt disallows `/stops/*?date=*` (crawling every date a stop ever
@@ -77,21 +89,26 @@ defmodule Foxbus.Adapters.Sources.BustimesProvider do
   end
 
   defp to_arrival(row, now) do
-    with [line_cell, destination_cell, time_cell] <- Floki.find(row, "td"),
+    with [line_cell, destination_cell, scheduled_cell | rest] <- Floki.find(row, "td"),
          line when line != "" <- line_cell |> Floki.text() |> String.trim(),
-         destination when destination != "" <-
-           destination_cell |> Floki.text() |> String.trim(),
-         [h, m] when h != nil <- parse_time(time_cell |> Floki.text() |> String.trim()) do
-      {eta, day} = minutes_until(Time.new!(h, m, 0), NaiveDateTime.to_time(now))
+         destination when destination != "" <- destination_text(destination_cell),
+         [h, m] <- parse_time(scheduled_cell |> Floki.text() |> String.trim()) do
+      {clock, status} =
+        case rest |> List.first() |> expected_time() do
+          [eh, em] -> {Time.new!(eh, em, 0), :live}
+          nil -> {Time.new!(h, m, 0), :scheduled}
+        end
+
+      {eta, day} = minutes_until(clock, NaiveDateTime.to_time(now))
 
       [
         %Arrival{
           line: line,
           destination: destination,
           eta_minutes: eta,
-          scheduled_time: Time.new!(h, m, 0),
+          scheduled_time: clock,
           day: day,
-          status: :scheduled
+          status: status
         }
       ]
     else
@@ -99,10 +116,32 @@ defmodule Foxbus.Adapters.Sources.BustimesProvider do
     end
   end
 
+  # The destination cell's own text only — a tracked departure nests a
+  # `<div class="vehicle">` (fleet number, registration) inside the same
+  # cell, which Floki.text/1 would otherwise fold into the destination.
+  defp destination_text({_tag, _attrs, children}) do
+    children
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" ")
+  end
+
+  defp destination_text(_), do: ""
+
+  defp expected_time(nil), do: nil
+
+  defp expected_time(cell) do
+    case cell |> Floki.text() |> String.trim() do
+      "" -> nil
+      text -> parse_time(text)
+    end
+  end
+
   defp parse_time(text) do
     case Regex.run(~r/^(\d{1,2}):(\d{2})$/, text, capture: :all_but_first) do
       [h, m] -> Enum.map([h, m], &String.to_integer/1)
-      nil -> [nil, nil]
+      nil -> nil
     end
   end
 
