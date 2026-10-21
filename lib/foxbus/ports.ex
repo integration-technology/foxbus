@@ -143,7 +143,11 @@ defmodule Foxbus.Ports.Provider do
   @doc "Every provider foxbus knows about, compiled in."
   @spec all() :: [module]
   def all,
-    do: [Foxbus.Adapters.Sources.CarouselProvider, Foxbus.Adapters.Sources.TflProvider]
+    do: [
+      Foxbus.Adapters.Sources.CarouselProvider,
+      Foxbus.Adapters.Sources.TflProvider,
+      Foxbus.Adapters.Sources.BustimesProvider
+    ]
 
   @doc "The provider module for a stored provider id, e.g. :carousel."
   @spec resolve(atom) :: module

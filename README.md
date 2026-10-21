@@ -215,6 +215,18 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   use; a plain colour carries no such restriction. The `:soon`/`:arriving`
   countdown screens stay orange/green regardless of provider, since that
   urgency colour matters more than a provider's own look.
+- `:bustimes` — scheduled departures scraped from bustimes.org
+  (`stop_id` is the numeric id in a stop's own bustimes.org URL, e.g.
+  `64803547` for `https://bustimes.org/stops/64803547`; `lines` are route
+  numbers like `"34"`). Named for the data source, not an operator —
+  bustimes.org is a community aggregator covering whichever operator(s)
+  serve a stop under a given route number (first used for Stagecoach East
+  Scotland's 34/34A at Murthly, but a stop can be served by more than one
+  company under the same number, same as a rider at the stop sees it).
+  Scheduled only, same reasoning as `:tfl`'s timetable — bustimes.org
+  shows no live/real-time indicator on this page. No caching (the
+  departures fragment is small, cheap to refetch every poll), and no
+  disruption or stop-closure concept yet.
 
 Adding more providers (more transport operators, more APIs) means adding a
 module implementing `Foxbus.Ports.Provider` and listing it in `all/0` — a
