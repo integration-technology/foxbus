@@ -208,6 +208,16 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   ../nest_gen2_sdk/platform/storage.sh foxbus put tfl_app_key '"<your key>"'
   ```
 
+  Running on a computer instead of the Nest (nest_gen2's host mode — see
+  `docs/host.md` in nest_gen2_sdk), a `TFL_APP_KEY` environment variable is
+  read first and takes priority over Storage — handy for a dotfile that
+  pulls the key from a password manager
+  (`export TFL_APP_KEY="$(lpass show --password ...)"`) without copying it
+  into host Storage by hand. An empty value counts as unset (falls back to
+  Storage), not as "the key is the empty string" — that dotfile line
+  exports `""` when the password manager is logged out. Nothing sets the
+  variable on the Nest, so it always reads from Storage there.
+
   A TfL-provider screen's plain (non-urgent) background is a dark navy
   (`Foxbus.Screens.Layout.tfl_navy/0`, an approximation of TfL's corporate
   blue) rather than the usual dark grey — not TfL's roundel mark or

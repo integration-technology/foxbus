@@ -51,10 +51,15 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
 
   Needs a free TfL `app_key` (register at https://api-portal.tfl.gov.uk) —
   the API works unauthenticated too, just at a much lower rate limit (a few
-  hundred requests a day, vs. hundreds a minute with a key). Read from
-  `NestGen2.Storage` (`storage.sh foxbus put tfl_app_key '"<key>"'`), never
-  mix.exs — a key is a secret, and mix.exs is committed to a public repo.
-  No value set means unauthenticated.
+  hundred requests a day, vs. hundreds a minute with a key). Read from the
+  `TFL_APP_KEY` environment variable first (handy for a host run — see
+  nest_gen2_sdk's host mode docs — so the key doesn't have to be copied
+  into host Storage by hand; an empty value, not just unset, counts as "no
+  key", since a dotfile that shells out to a password manager exports ""
+  when it's logged out), then from `NestGen2.Storage`
+  (`storage.sh foxbus put tfl_app_key '"<key>"'`). Never mix.exs — a key
+  is a secret, and mix.exs is committed to a public repo. Neither set
+  means unauthenticated.
   """
 
   @behaviour Foxbus.Ports.Provider
@@ -306,9 +311,26 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   end
 
   defp app_key_query do
-    case Storage.get(:tfl_app_key, nil, app: :foxbus) do
+    case app_key() do
       nil -> ""
       key -> "?app_key=#{URI.encode_www_form(key)}"
+    end
+  end
+
+  @doc false
+  # TFL_APP_KEY first (set, non-empty) — lets a host run pick up a key from
+  # the environment (e.g. a password-manager export) without copying it
+  # into host Storage — then Storage, same as always. Nothing sets the env
+  # var on the Nest, so it always falls through to Storage there. Checked
+  # empty, not just unset: a dotfile that shells out to a password manager
+  # (`export TFL_APP_KEY="$(lpass show --password ...)"`) exports "" when
+  # that's logged out, which should mean "no key", not "key is literally
+  # the empty string".
+  @spec app_key() :: String.t() | nil
+  def app_key do
+    case System.get_env("TFL_APP_KEY") do
+      key when is_binary(key) and key != "" -> key
+      _ -> Storage.get(:tfl_app_key, nil, app: :foxbus)
     end
   end
 end
