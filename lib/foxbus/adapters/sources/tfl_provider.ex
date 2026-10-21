@@ -28,23 +28,35 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   **Caching**: the timetable response is large (~130 KB — the whole day's
   journeys across every day-type) and this is a memory-constrained device,
   so it is never re-fetched on every poll. `fetch_arrivals/2` parses it down
-  to a few dozen small `{hour, minute, destination}` tuples per day-type and
+  to a few dozen small `{hour, minute, destination}` tuples per weekday and
   caches that in `NestGen2.Storage`, refetching only once a calendar day
-  (UK local date). Known simplification: the day-type (`"Monday - Thursday"`
-  / `"Friday"` / `"Saturdays and Public Holidays"` / `"Sunday"`) is chosen
-  from the day of the week alone — a weekday public holiday still gets its
-  ordinary weekday schedule, not the holiday one, since there's no holiday
-  calendar here to check against.
+  (UK local date). Known simplification: a weekday public holiday still
+  gets its ordinary weekday schedule, not a holiday one, since there's no
+  holiday calendar here to check against.
 
-  **Partial responses**: confirmed live that `/Line/{line}/Timetable/{stop}`
-  sometimes comes back with only one day-type's schedule instead of all
-  four (looks like a TfL backend cache inconsistency, not something this
-  app's requests trigger). Caching that for the whole day would make a
-  stop show nothing, or the wrong day's times, until the next fetch — so a
-  response is only accepted and cached when it has all four day-types; an
-  incomplete one is treated as a fetch error, and the previous day's stale
+  **Schedule names vary and can't be trusted as a fixed set of four**:
+  confirmed live that `/Line/{line}/Timetable/{stop}` doesn't always use
+  the obvious `"Monday - Thursday"` / `"Friday"` /
+  `"Saturdays and Public Holidays"` / `"Sunday"` four-name shape — on one
+  occasion it returned only `"Sunday"` (a TfL backend cache
+  inconsistency), and on another, during what looks like a temporary
+  engineering-work timetable, exactly `["Thursdays", "Tuesdays",
+  "Wednesdays"]` with no `"Monday - Thursday"` at all. So instead of
+  requiring a fixed set of names, `weekdays_covered/1` parses whatever
+  name TfL sends (a range like `"Monday - Thursday"`, a single plural day
+  like `"Tuesdays"`, `"Saturdays and Public Holidays"`, a bare `"Sunday"`,
+  ...) into the set of weekdays it actually covers, and a response is only
+  accepted and cached when some schedule in it covers *today's* specific
+  weekday — not all seven, just today, since that's all a response is
+  ever used for before the next day's refetch. The cache itself is keyed
+  by weekday number (`Date.day_of_week/1`, 1 Monday .. 7 Sunday), not by
+  TfL's schedule name, so a lookup never has to re-guess which of TfL's
+  possibly-inconsistent names today falls under. A response that doesn't
+  cover today is treated as a fetch error, and the previous day's stale
   cache (if any) is kept and reused rather than overwriting it with
-  something worse.
+  something worse — though if that stale cache doesn't have today's
+  weekday either (a stale Friday cache on a Monday, say), it shows as no
+  departures today rather than claiming to know.
 
   No stop-closure concept here (`closures?/0` is false) — TfL has line
   status, not a per-station "this stop is closed" notice.
@@ -70,7 +82,7 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
 
   @base_url "https://api.tfl.gov.uk"
   @upcoming_count 3
-  @day_types ["Monday - Thursday", "Friday", "Saturdays and Public Holidays", "Sunday"]
+  @weekday_names ~w(Monday Tuesday Wednesday Thursday Friday Saturday Sunday)
 
   @impl true
   def id, do: :tfl
@@ -99,13 +111,13 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   defp upcoming_departures(stop_id, line) do
     now = Foxbus.LondonTime.now()
 
-    with {:ok, schedules} <- cached_schedules(stop_id, line) do
-      day = day_type(NaiveDateTime.to_date(now))
+    with {:ok, by_weekday} <- cached_schedules(stop_id, line) do
+      weekday = Date.day_of_week(NaiveDateTime.to_date(now))
       now_minutes = now.hour * 60 + now.minute
 
       departures =
-        schedules
-        |> Map.get(day, [])
+        by_weekday
+        |> Map.get(weekday, [])
         |> next_departures(now_minutes)
         |> Enum.map(fn {hour, minute, destination} ->
           to_arrival(line, hour, minute, destination, now_minutes)
@@ -134,35 +146,25 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
     }
   end
 
-  @doc "Monday-Thursday/Friday/Saturday/Sunday, matching the Timetable endpoint's own schedule names."
-  @spec day_type(Date.t()) :: String.t()
-  def day_type(date) do
-    case Date.day_of_week(date) do
-      day when day in 1..4 -> "Monday - Thursday"
-      5 -> "Friday"
-      6 -> "Saturdays and Public Holidays"
-      7 -> "Sunday"
-    end
-  end
-
   defp cached_schedules(stop_id, line) do
     key = cache_key(stop_id, line)
     today = NaiveDateTime.to_date(Foxbus.LondonTime.now())
+    weekday = Date.day_of_week(today)
     cached = Storage.get(key, nil, app: :foxbus)
 
     case cached do
-      %{fetched_on: ^today, schedules: schedules} ->
-        {:ok, schedules}
+      %{fetched_on: ^today, by_weekday: by_weekday} ->
+        {:ok, by_weekday}
 
       _stale_or_missing ->
-        case fetch_and_parse_timetable(stop_id, line) do
-          {:ok, schedules} ->
-            Storage.put(key, %{fetched_on: today, schedules: schedules}, app: :foxbus)
-            {:ok, schedules}
+        case fetch_and_parse_timetable(stop_id, line, weekday) do
+          {:ok, by_weekday} ->
+            Storage.put(key, %{fetched_on: today, by_weekday: by_weekday}, app: :foxbus)
+            {:ok, by_weekday}
 
           {:error, _reason} = error ->
             case cached do
-              %{schedules: schedules} -> {:ok, schedules}
+              %{by_weekday: by_weekday} -> {:ok, by_weekday}
               _no_previous_cache -> error
             end
         end
@@ -176,21 +178,83 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
     "tfl_tt_" <> String.downcase(stop_id) <> "_" <> slug
   end
 
-  defp fetch_and_parse_timetable(stop_id, line) do
+  defp fetch_and_parse_timetable(stop_id, line, weekday) do
     with {:ok, json} <- TflHttp.get(url("/Line/#{line_id(line)}/Timetable/#{stop_id}")) do
       schedules = parse_timetable(json)
 
-      if complete_timetable?(schedules) do
-        {:ok, schedules}
+      if covers_weekday?(schedules, weekday) do
+        {:ok, expand_by_weekday(schedules)}
       else
         {:error, :incomplete_timetable}
       end
     end
   end
 
-  @doc "True only when all four day-types are present — see the moduledoc on partial responses."
-  @spec complete_timetable?(%{String.t() => list}) :: boolean
-  def complete_timetable?(schedules), do: Enum.all?(@day_types, &Map.has_key?(schedules, &1))
+  @doc "True when some schedule in the response covers this weekday (1 Monday .. 7 Sunday)."
+  @spec covers_weekday?(%{String.t() => list}, 1..7) :: boolean
+  def covers_weekday?(schedules, weekday) do
+    Enum.any?(schedules, fn {name, _departures} -> weekday in weekdays_covered(name) end)
+  end
+
+  @doc """
+  `parse_timetable/1`'s result, re-keyed by weekday number (1 Monday .. 7
+  Sunday) instead of TfL's own schedule name — see `weekdays_covered/1`.
+  A schedule covering several weekdays (`"Monday - Thursday"`) appears
+  under each of them; two schedules covering the same weekday (not seen
+  live, but not impossible) have their departures merged and re-sorted
+  rather than one silently winning.
+  """
+  @spec expand_by_weekday(%{String.t() => [{non_neg_integer, non_neg_integer, String.t()}]}) ::
+          %{(1..7) => [{non_neg_integer, non_neg_integer, String.t()}]}
+  def expand_by_weekday(schedules) do
+    for {name, departures} <- schedules,
+        weekday <- weekdays_covered(name),
+        reduce: %{} do
+      acc -> Map.update(acc, weekday, departures, &Enum.sort(&1 ++ departures))
+    end
+  end
+
+  @doc """
+  Which weekdays (1 Monday .. 7 Sunday) a TfL schedule name covers.
+  Confirmed live that TfL doesn't use a fixed set of four names — seen so
+  far: a range (`"Monday - Thursday"`), a single plural day
+  (`"Tuesdays"`), a day plus trailing text (`"Saturdays and Public
+  Holidays"`), and a bare singular (`"Sunday"`). A range is `"<day> -
+  <day>"` inclusive of both ends; anything else is read as covering
+  every weekday name found anywhere in it (substring match, so a plural
+  like "Tuesdays" still matches "Tuesday") — a name matching no weekday
+  at all (seen as impossible so far) covers none, rather than guessing.
+  """
+  @spec weekdays_covered(String.t()) :: MapSet.t(1..7)
+  def weekdays_covered(name) do
+    case String.split(name, " - ", parts: 2) do
+      [left, right] ->
+        with from when not is_nil(from) <- weekday_in_text(left),
+             to when not is_nil(to) <- weekday_in_text(right),
+             true <- from <= to do
+          MapSet.new(from..to)
+        else
+          _ -> weekdays_in_text(name)
+        end
+
+      _ ->
+        weekdays_in_text(name)
+    end
+  end
+
+  defp weekday_in_text(text) do
+    @weekday_names
+    |> Enum.with_index(1)
+    |> Enum.find_value(fn {day, n} -> if String.contains?(text, day), do: n end)
+  end
+
+  defp weekdays_in_text(text) do
+    @weekday_names
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {day, _n} -> String.contains?(text, day) end)
+    |> Enum.map(fn {_day, n} -> n end)
+    |> MapSet.new()
+  end
 
   @doc """
   The timetable response's `schedules` (one per day-type, e.g.

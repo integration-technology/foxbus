@@ -83,24 +83,78 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
     end
   end
 
-  describe "complete_timetable?/1" do
-    test "true when all four day-types are present" do
-      schedules = %{
-        "Monday - Thursday" => [],
-        "Friday" => [],
-        "Saturdays and Public Holidays" => [],
-        "Sunday" => []
-      }
-
-      assert TflProvider.complete_timetable?(schedules)
+  describe "weekdays_covered/1" do
+    test "a range covers every weekday from the first to the second, inclusive" do
+      assert TflProvider.weekdays_covered("Monday - Thursday") == MapSet.new([1, 2, 3, 4])
+      assert TflProvider.weekdays_covered("Monday - Friday") == MapSet.new([1, 2, 3, 4, 5])
     end
 
-    test "false on a partial response (confirmed live: TfL sometimes returns only Sunday)" do
-      refute TflProvider.complete_timetable?(%{"Sunday" => [{6, 59, "Aldgate"}]})
+    test "a single plural weekday covers just that day" do
+      assert TflProvider.weekdays_covered("Tuesdays") == MapSet.new([2])
+      assert TflProvider.weekdays_covered("Wednesdays") == MapSet.new([3])
+      assert TflProvider.weekdays_covered("Thursdays") == MapSet.new([4])
+    end
+
+    test "a day plus trailing text still covers just that day" do
+      assert TflProvider.weekdays_covered("Saturdays and Public Holidays") == MapSet.new([6])
+    end
+
+    test "a bare singular day covers just that day" do
+      assert TflProvider.weekdays_covered("Sunday") == MapSet.new([7])
+    end
+
+    test "nothing recognisable covers no weekday, rather than guessing" do
+      assert TflProvider.weekdays_covered("Half Term") == MapSet.new()
+    end
+  end
+
+  describe "covers_weekday?/2" do
+    test "true when some schedule covers the weekday" do
+      schedules = %{"Tuesdays" => [], "Wednesdays" => [], "Thursdays" => []}
+      assert TflProvider.covers_weekday?(schedules, 2)
+      refute TflProvider.covers_weekday?(schedules, 1)
+    end
+
+    test "false on a partial response that misses today (confirmed live: TfL sometimes " <>
+           "returns only Sunday, unauthenticated)" do
+      refute TflProvider.covers_weekday?(%{"Sunday" => [{6, 59, "Aldgate"}]}, 1)
+      assert TflProvider.covers_weekday?(%{"Sunday" => [{6, 59, "Aldgate"}]}, 7)
     end
 
     test "false when empty" do
-      refute TflProvider.complete_timetable?(%{})
+      refute TflProvider.covers_weekday?(%{}, 1)
+    end
+  end
+
+  describe "expand_by_weekday/1" do
+    test "a ranged schedule appears under each weekday it covers" do
+      schedules = %{"Monday - Thursday" => [{5, 22, "Aldgate"}]}
+      by_weekday = TflProvider.expand_by_weekday(schedules)
+
+      for weekday <- 1..4 do
+        assert by_weekday[weekday] == [{5, 22, "Aldgate"}]
+      end
+
+      refute Map.has_key?(by_weekday, 5)
+    end
+
+    test "confirmed live: an engineering-work week names each weekday separately" do
+      schedules = %{
+        "Tuesdays" => [{5, 30, "Spittalfield"}],
+        "Wednesdays" => [{5, 35, "Spittalfield"}],
+        "Thursdays" => [{5, 40, "Spittalfield"}]
+      }
+
+      by_weekday = TflProvider.expand_by_weekday(schedules)
+      assert by_weekday[2] == [{5, 30, "Spittalfield"}]
+      assert by_weekday[3] == [{5, 35, "Spittalfield"}]
+      assert by_weekday[4] == [{5, 40, "Spittalfield"}]
+      refute Map.has_key?(by_weekday, 1)
+    end
+
+    test "two schedules covering the same weekday merge, sorted, rather than one winning" do
+      schedules = %{"Mondays" => [{7, 0, "A"}], "Monday - Tuesday" => [{6, 0, "B"}]}
+      assert TflProvider.expand_by_weekday(schedules)[1] == [{6, 0, "B"}, {7, 0, "A"}]
     end
   end
 
@@ -122,26 +176,6 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
 
     test "none left today is an empty list" do
       assert TflProvider.next_departures([{5, 0, "A"}], 23 * 60) == []
-    end
-  end
-
-  describe "day_type/1" do
-    test "Monday through Thursday" do
-      for date <- [~D[2026-10-12], ~D[2026-10-13], ~D[2026-10-14], ~D[2026-10-15]] do
-        assert TflProvider.day_type(date) == "Monday - Thursday"
-      end
-    end
-
-    test "Friday" do
-      assert TflProvider.day_type(~D[2026-10-16]) == "Friday"
-    end
-
-    test "Saturday" do
-      assert TflProvider.day_type(~D[2026-10-17]) == "Saturdays and Public Holidays"
-    end
-
-    test "Sunday" do
-      assert TflProvider.day_type(~D[2026-10-18]) == "Sunday"
     end
   end
 
