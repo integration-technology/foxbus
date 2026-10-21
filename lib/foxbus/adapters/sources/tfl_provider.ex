@@ -152,24 +152,45 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
     weekday = Date.day_of_week(today)
     cached = Storage.get(key, nil, app: :foxbus)
 
-    case cached do
-      %{fetched_on: ^today, by_weekday: by_weekday} ->
+    case fresh_cache(cached, today) do
+      {:ok, by_weekday} ->
         {:ok, by_weekday}
 
-      _stale_or_missing ->
+      :miss ->
         case fetch_and_parse_timetable(stop_id, line, weekday) do
           {:ok, by_weekday} ->
             Storage.put(key, %{fetched_on: today, by_weekday: by_weekday}, app: :foxbus)
             {:ok, by_weekday}
 
           {:error, _reason} = error ->
-            case cached do
-              %{by_weekday: by_weekday} -> {:ok, by_weekday}
-              _no_previous_cache -> error
+            case stale_cache(cached) do
+              {:ok, by_weekday} -> {:ok, by_weekday}
+              :none -> error
             end
         end
     end
   end
+
+  @doc false
+  # A cache entry counts as fresh only in the current by_weekday shape,
+  # fetched today — the pre-5ca5a2c shape (`%{fetched_on:, schedules:}`,
+  # keyed by TfL's own, possibly-inconsistent schedule name) never matches
+  # here, by construction, regardless of its fetched_on date: it simply
+  # misses, the same as no cache at all, rather than crashing on an
+  # unrecognised shape.
+  @spec fresh_cache(term, Date.t()) :: {:ok, map} | :miss
+  def fresh_cache(%{fetched_on: date, by_weekday: by_weekday}, today) when date == today,
+    do: {:ok, by_weekday}
+
+  def fresh_cache(_cached, _today), do: :miss
+
+  @doc false
+  # The stale-cache fallback used when a fetch fails — same shape
+  # requirement and same "old shape just misses" reasoning as
+  # fresh_cache/2.
+  @spec stale_cache(term) :: {:ok, map} | :none
+  def stale_cache(%{by_weekday: by_weekday}), do: {:ok, by_weekday}
+  def stale_cache(_cached), do: :none
 
   # Storage keys are lowercase letters/digits/underscore only — stop_id is
   # already alnum, but line_id/1 can contain hyphens ("hammersmith-city").
@@ -290,8 +311,16 @@ defmodule Foxbus.Adapters.Sources.TflProvider do
   defp station_names(json) do
     json
     |> Map.get("stations", [])
-    |> Map.new(fn s -> {Map.fetch!(s, "id"), Map.fetch!(s, "name")} end)
+    |> Map.new(fn s -> {Map.fetch!(s, "id"), strip_station_suffix(Map.fetch!(s, "name"))} end)
   end
+
+  # TfL's own station names all carry this suffix ("Baker Street
+  # Underground Station") — fine on TfL's own site, but on a 320 px round
+  # screen (and per Owain: destinations should read "Aldgate", "Baker
+  # Street", not the full official name) it's dead weight that pushes a
+  # genuinely useful destination name into truncation for nothing.
+  @spec strip_station_suffix(String.t()) :: String.t()
+  defp strip_station_suffix(name), do: String.trim_trailing(name, " Underground Station")
 
   defp route_destinations(json, names) do
     json

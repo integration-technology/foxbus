@@ -215,6 +215,22 @@ defmodule Foxbus.Screens.Layout do
   says which stop you're at, since the per-bus destinations below it
   already say where each one terminates. Left nil (the default), a
   multi-destination screen drops the title entirely, as before.
+
+  `show_destination?` (default false) makes every row show its own
+  destination under the time, the same two-line shape `multi_destination?`
+  already uses, instead of the line name — for a single-line stop (TfL's
+  Underground screens, see `Foxbus.Screens`) the line never varies and so
+  carries no information once the title and colour have already said
+  which one it is; the destination is the only thing worth a rider's eye.
+  Confirmed live (a host capture, Amersham): at a moment when the next
+  few trains happened to share one destination, `multi_destination?`
+  alone was false, so the row fell back to repeating the line name three
+  times with no destination shown at all — not wrong, just useless, since
+  "Metropolitan at 16:44" says nothing "Amersham" (the title) and navy
+  (the colour) hadn't already said. `show_destination?` makes that
+  decision explicit instead of inferring it from whether this particular
+  poll's few departures happen to vary — unlike a Carousel stop, where
+  the line (not the destination) is what tells two services apart.
   """
   @spec stop(
           String.t(),
@@ -224,7 +240,8 @@ defmodule Foxbus.Screens.Layout do
           String.t() | nil,
           boolean,
           String.t(),
-          String.t() | nil
+          String.t() | nil,
+          boolean
         ) :: list
   def stop(
         title,
@@ -234,7 +251,8 @@ defmodule Foxbus.Screens.Layout do
         disruption \\ nil,
         uncertain? \\ false,
         background \\ @dark,
-        stop_name \\ nil
+        stop_name \\ nil,
+        show_destination? \\ false
       ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
@@ -253,6 +271,13 @@ defmodule Foxbus.Screens.Layout do
         # that disagree with it.
         title_line =
           cond do
+            # show_destination? means title is a place name (a TfL station),
+            # not a direction ("To Riverside") — varying destinations below
+            # it don't contradict it the way they would a direction, so it
+            # always stays.
+            show_destination? ->
+              [{:text, 160, 54, title, text_opts(24, @white, background)}]
+
             multi_destination?(arrivals) and stop_name ->
               [
                 {:text, 160, 54, truncate(direction_label(stop_name, title), @direction_chars),
@@ -267,7 +292,7 @@ defmodule Foxbus.Screens.Layout do
           end
 
         [{:background, background} | title_line] ++
-          body(arrivals, background) ++ warning_line(disruption, background)
+          body(arrivals, background, show_destination?) ++ warning_line(disruption, background)
 
       {:soon, m} ->
         countdown(title, hd(arrivals), m, @orange, bell, false) ++
@@ -367,13 +392,17 @@ defmodule Foxbus.Screens.Layout do
       else: String.slice(text, 0, max_chars - 1) <> "…"
   end
 
-  defp body(nil, background),
+  defp body(nil, background, _show_destination?),
     do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, background)}]
 
-  defp body(arrivals, background) do
-    if multi_destination?(arrivals),
-      do: body_with_destinations(arrivals, background),
-      else: body_rows(arrivals, background)
+  defp body(arrivals, background, show_destination?) do
+    cond do
+      multi_destination?(arrivals) or show_destination? ->
+        body_with_destinations(arrivals, background, not show_destination?)
+
+      true ->
+        body_rows(arrivals, background)
+    end
   end
 
   # True once more than one line is watched (a stop's own lines, see
@@ -414,7 +443,7 @@ defmodule Foxbus.Screens.Layout do
     end)
   end
 
-  defp body_with_destinations(arrivals, background) do
+  defp body_with_destinations(arrivals, background, show_line?) do
     arrivals
     |> Enum.take(@multi_dest_max_rows)
     |> Enum.with_index()
@@ -422,9 +451,11 @@ defmodule Foxbus.Screens.Layout do
       color = if a.status == :live, do: @white, else: @dim
       y = @row_y + i * @multi_dest_row_gap
 
+      top_label =
+        if show_line?, do: "#{a.line}  #{Arrival.eta_text(a)}", else: Arrival.eta_text(a)
+
       [
-        {:text, 160, y, "#{a.line}  #{Arrival.eta_text(a)}",
-         text_opts(@multi_dest_row_size, color, background)},
+        {:text, 160, y, top_label, text_opts(@multi_dest_row_size, color, background)},
         # Shrunk from 24 to 20 chars to match the bigger font — a
         # proportional guess, also unverified.
         {:text, 160, y + 24, truncate(a.destination, 20),

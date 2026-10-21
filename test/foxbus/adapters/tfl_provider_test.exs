@@ -62,9 +62,14 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
       schedules = TflProvider.parse_timetable(timetable_json())
 
       assert schedules["Monday - Thursday"] == [
-               {5, 22, "Aldgate Underground Station"},
-               {6, 4, "Baker Street Underground Station"}
+               {5, 22, "Aldgate"},
+               {6, 4, "Baker Street"}
              ]
+    end
+
+    test "drops TfL's own 'Underground Station' suffix from a destination name" do
+      schedules = TflProvider.parse_timetable(timetable_json())
+      refute Enum.any?(schedules["Monday - Thursday"], fn {_h, _m, d} -> d =~ "Underground" end)
     end
 
     test "drops journeys with hour 24+ instead of getting day-rollover wrong" do
@@ -74,7 +79,7 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
 
     test "keeps every day-type's schedule separate" do
       schedules = TflProvider.parse_timetable(timetable_json())
-      assert schedules["Sunday"] == [{6, 59, "Aldgate Underground Station"}]
+      assert schedules["Sunday"] == [{6, 59, "Aldgate"}]
     end
 
     test "an empty timetable parses to empty schedules, not a crash" do
@@ -176,6 +181,45 @@ defmodule Foxbus.Adapters.Sources.TflProviderTest do
 
     test "none left today is an empty list" do
       assert TflProvider.next_departures([{5, 0, "A"}], 23 * 60) == []
+    end
+  end
+
+  describe "fresh_cache/2 and stale_cache/1 — the pre-5ca5a2c cache shape" do
+    # The literal shape NestGen2.Storage held before this change: keyed by
+    # TfL's own schedule name, not by weekday — confirmed live, this is
+    # what's still on the Nest's own Storage (fetched 19 Oct) until its
+    # next successful refetch overwrites it.
+    @old_shape_cache %{
+      fetched_on: ~D[2026-10-19],
+      schedules: %{"Monday - Thursday" => [{5, 22, "Aldgate Underground Station"}]}
+    }
+
+    test "the old shape is never fresh, even dated today — it just misses, not crashes" do
+      assert TflProvider.fresh_cache(@old_shape_cache, ~D[2026-10-19]) == :miss
+      assert TflProvider.fresh_cache(@old_shape_cache, ~D[2026-10-21]) == :miss
+    end
+
+    test "the old shape is never usable as a stale fallback either — also just misses" do
+      assert TflProvider.stale_cache(@old_shape_cache) == :none
+    end
+
+    test "no cache at all also just misses, same as the old shape" do
+      assert TflProvider.fresh_cache(nil, ~D[2026-10-21]) == :miss
+      assert TflProvider.stale_cache(nil) == :none
+    end
+
+    test "the new shape is fresh only when fetched today" do
+      cache = %{fetched_on: ~D[2026-10-21], by_weekday: %{2 => [{5, 30, "Spittalfield"}]}}
+
+      assert TflProvider.fresh_cache(cache, ~D[2026-10-21]) ==
+               {:ok, %{2 => [{5, 30, "Spittalfield"}]}}
+
+      assert TflProvider.fresh_cache(cache, ~D[2026-10-22]) == :miss
+    end
+
+    test "the new shape is always usable as a stale fallback, regardless of its date" do
+      cache = %{fetched_on: ~D[2026-10-19], by_weekday: %{2 => [{5, 30, "Spittalfield"}]}}
+      assert TflProvider.stale_cache(cache) == {:ok, %{2 => [{5, 30, "Spittalfield"}]}}
     end
   end
 

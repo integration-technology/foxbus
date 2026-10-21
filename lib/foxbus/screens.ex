@@ -113,6 +113,8 @@ defmodule Foxbus.Screens do
       titles: Map.new(stops, fn stop -> {stop.key, stop.title} end),
       stop_names: Map.new(stops, fn stop -> {stop.key, Map.get(stop, :stop_name)} end),
       backgrounds: Map.new(stops, fn stop -> {stop.key, stop_background(stop.provider)} end),
+      show_destinations:
+        Map.new(stops, fn stop -> {stop.key, show_destination?(stop.provider)} end),
       index: default_index,
       arrivals: %{},
       fetched_at: %{},
@@ -147,6 +149,12 @@ defmodule Foxbus.Screens do
   # now; every other provider keeps the ordinary dark background.
   defp stop_background(:tfl), do: Layout.tfl_navy()
   defp stop_background(_provider), do: Layout.dark()
+
+  # A TfL Underground screen only ever watches one line, so naming it on
+  # every row is noise — the destination is what actually varies and is
+  # worth a rider's eye. See Layout.stop/9's moduledoc.
+  defp show_destination?(:tfl), do: true
+  defp show_destination?(_provider), do: false
 
   defp closures_without_poller(stops) do
     stops
@@ -710,7 +718,8 @@ defmodule Foxbus.Screens do
                 nil,
                 false,
                 state.backgrounds[stop],
-                state.stop_names[stop]
+                state.stop_names[stop],
+                state.show_destinations[stop]
               )
 
             {:ok, nil} ->
@@ -722,7 +731,8 @@ defmodule Foxbus.Screens do
                 disruption(state, stop),
                 uncertain?(state, stop),
                 state.backgrounds[stop],
-                state.stop_names[stop]
+                state.stop_names[stop],
+                state.show_destinations[stop]
               )
 
             {:ok, explanation} ->

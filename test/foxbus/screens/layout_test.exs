@@ -189,6 +189,55 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
+  describe "show_destination? — a single-line stop (TfL Underground)" do
+    test "shows the destination under the time instead of the (redundant) line name" do
+      ops =
+        Layout.stop(
+          "Amersham",
+          [arrival_to("Metropolitan", 11, "Aldgate"), arrival_to("Metropolitan", 18, "Aldgate")],
+          0,
+          :none,
+          nil,
+          false,
+          "#0019A8",
+          nil,
+          true
+        )
+
+      # Confirmed live (a host capture, Amersham): both departures sharing
+      # one destination made multi_destination?/1 false, so without this
+      # flag the row would fall back to repeating "Metropolitan" with no
+      # destination at all.
+      assert texts(ops) == ["Amersham", "11 min", "Aldgate", "18 min", "Aldgate"]
+    end
+
+    test "still drops the line even when destinations do vary — and keeps the title, " <>
+           "unlike a Carousel 'To X' direction it would actually contradict" do
+      ops =
+        Layout.stop(
+          "Amersham",
+          [
+            arrival_to("Metropolitan", 11, "Aldgate"),
+            arrival_to("Metropolitan", 18, "Baker Street")
+          ],
+          0,
+          :none,
+          nil,
+          false,
+          "#0019A8",
+          nil,
+          true
+        )
+
+      assert texts(ops) == ["Amersham", "11 min", "Aldgate", "18 min", "Baker Street"]
+    end
+
+    test "false (the default) keeps the line name, unchanged" do
+      ops = Layout.stop("To Mapleton", [arrival_to("105", 14, "Mapleton")])
+      assert texts(ops) == ["To Mapleton", "105  14 min"]
+    end
+  end
+
   describe "mode/2 and the countdown" do
     test "list beyond 10 minutes, orange at 10 or less, green at 5 or less" do
       assert Layout.mode([arrival("105", 11)], 0) == :list
