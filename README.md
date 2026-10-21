@@ -237,6 +237,33 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   shows no live/real-time indicator on this page. No caching (the
   departures fragment is small, cheap to refetch every poll), and no
   disruption or stop-closure concept yet.
+- `:stagecoach` — live departures from Stagecoach's own real-time API
+  (`stop_id` is Stagecoach's own `stopPointLabel` — confirmed the same
+  numeric id bustimes.org uses for the same stop, e.g. `64803547` for
+  Murthly, Primary School; `lines` are route numbers, e.g. `"34"`,
+  `"34A"`). **Unofficial and unsupported** — see
+  `Foxbus.Adapters.Sources.StagecoachHttp`'s moduledoc for the full
+  story: the `X-SC-apiKey` this sends isn't issued to this project, it
+  was found embedded in stagecoachbus.com's own website JavaScript via a
+  browser network capture. No developer docs exist for this endpoint as
+  far as we could find. Built on Owain's own explicit decision, accepting
+  that it can stop working at any time without notice — if it does,
+  `fetch_arrivals/2` just returns an error like any other failed fetch,
+  no special handling. Genuinely live (both an aimed and an expected
+  time per call, so a real delay shows), unlike `:bustimes`. No caching
+  (a handful of calls per stop, cheap to refetch), no disruption or
+  stop-closure concept.
+
+  The key has no unauthenticated fallback (confirmed live: a wrong key
+  gets a 401), so it must be set, as a secret, via Storage:
+
+  ```sh
+  ../nest_gen2_sdk/platform/storage.sh foxbus put stagecoach_api_key '"<the key>"'
+  ```
+
+  or, running on a computer (nest_gen2's host mode), read first from a
+  `STAGECOACH_API_KEY` environment variable — same pattern, same reasons,
+  as `:tfl`'s `TFL_APP_KEY` above (an empty value counts as unset).
 
 Adding more providers (more transport operators, more APIs) means adding a
 module implementing `Foxbus.Ports.Provider` and listing it in `all/0` — a

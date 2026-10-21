@@ -146,7 +146,8 @@ defmodule Foxbus.Ports.Provider do
     do: [
       Foxbus.Adapters.Sources.CarouselProvider,
       Foxbus.Adapters.Sources.TflProvider,
-      Foxbus.Adapters.Sources.BustimesProvider
+      Foxbus.Adapters.Sources.BustimesProvider,
+      Foxbus.Adapters.Sources.StagecoachProvider
     ]
 
   @doc "The provider module for a stored provider id, e.g. :carousel."
