@@ -543,12 +543,10 @@ defmodule Foxbus.Screens do
 
   defp current(state), do: Enum.at(state.screens, state.index)
 
-  defp next_bus(state, stop) do
-    case effective_arrivals(state, stop) do
-      [bus | _] -> bus
-      _ -> nil
-    end
-  end
+  # Skips a cancelled head bus, same as Layout.mode/2's countdown — a bell
+  # keyed to a cancelled bus misses rebind's 3-min tolerance once it falls
+  # off the list and never rebinds to the real next bus.
+  defp next_bus(state, stop), do: Layout.next_due(effective_arrivals(state, stop))
 
   # Remembers when the current next bus first read as due (eta <= 0), per
   # stop, so effective_arrivals/2 can tell "just went due" from "been due a
