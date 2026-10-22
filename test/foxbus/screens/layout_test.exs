@@ -248,12 +248,34 @@ defmodule Foxbus.Screens.LayoutTest do
       assert Layout.mode(nil, 0) == :list
     end
 
+    test "a cancelled soonest bus is skipped for mode — a countdown to it would mislead" do
+      cancelled = %{arrival("105", 3) | cancelled?: true}
+      assert Layout.mode([cancelled, arrival("105", 11)], 0) == :list
+      assert Layout.mode([cancelled, arrival("105", 4)], 0) == {:arriving, 4}
+      assert Layout.mode([cancelled], 0) == :list
+    end
+
+    test "next_due/1 is the soonest non-cancelled arrival" do
+      cancelled = %{arrival("105", 3) | cancelled?: true}
+      assert Layout.next_due([cancelled, arrival("105", 11)]).eta_minutes == 11
+      assert Layout.next_due([cancelled]) == nil
+      assert Layout.next_due(nil) == nil
+    end
+
     test "counts down from the last fetch" do
       assert Layout.minutes_left(12, 0) == 12
       assert Layout.minutes_left(12, 59_999) == 12
       assert Layout.minutes_left(12, 3 * @minute) == 9
       assert Layout.minutes_left(2, 10 * @minute) == 0
       assert Layout.mode([arrival("105", 12)], 3 * @minute) == {:soon, 9}
+    end
+
+    test "the countdown screen counts down the next non-cancelled bus, not a cancelled soonest one" do
+      cancelled = %{arrival("105", 3) | cancelled?: true}
+      ops = Layout.stop("To Mapleton", [cancelled, arrival("105", 4)])
+      assert background(ops) == @green
+      assert Enum.any?(ops, &match?({:text, _, _, "4", _}, &1))
+      refute Enum.any?(ops, &match?({:text, _, _, "3", _}, &1))
     end
 
     test "the orange screen shows the minutes large" do

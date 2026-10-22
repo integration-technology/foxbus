@@ -11,7 +11,8 @@ defmodule Foxbus.Domain.Arrival do
     :status,
     :delay_minutes,
     :scheduled_time,
-    day: :today
+    day: :today,
+    cancelled?: false
   ]
 
   @type status :: :live | :scheduled
@@ -24,7 +25,8 @@ defmodule Foxbus.Domain.Arrival do
           status: status,
           delay_minutes: integer | nil,
           scheduled_time: Time.t() | nil,
-          day: day
+          day: day,
+          cancelled?: boolean
         }
 
   @countdown_threshold_minutes 10
@@ -34,12 +36,16 @@ defmodule Foxbus.Domain.Arrival do
   def sort_by_eta(arrivals), do: Enum.sort_by(arrivals, & &1.eta_minutes)
 
   @doc """
-  How to show when the bus is due: a countdown once it is close enough that a
-  minute matters (10 minutes or less), otherwise the clock time to look for —
-  marked "Tomorrow" when the board has rolled over to the next day's first
-  services, so a late-night "at 06:25" doesn't read as tonight.
+  How to show when the bus is due: "Cancelled" first, regardless of how
+  close its scheduled time is — a countdown to a bus that isn't coming
+  would be actively misleading, not just unhelpful. Otherwise a countdown
+  once it is close enough that a minute matters (10 minutes or less),
+  otherwise the clock time to look for — marked "Tomorrow" when the board
+  has rolled over to the next day's first services, so a late-night
+  "at 06:25" doesn't read as tonight.
   """
   @spec eta_text(t) :: String.t()
+  def eta_text(%__MODULE__{cancelled?: true}), do: "Cancelled"
   def eta_text(%__MODULE__{eta_minutes: m}) when m <= @countdown_threshold_minutes, do: "#{m} min"
   def eta_text(%__MODULE__{scheduled_time: nil, eta_minutes: m}), do: "#{m} min"
 

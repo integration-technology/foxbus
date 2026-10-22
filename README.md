@@ -257,13 +257,19 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   just returns an error like any other failed fetch, no special handling.
   Started on `adc/stop-monitor` (SIRI Stop Monitoring, genuinely live —
   an aimed and an expected time per call) but that only ever returns the
-  *next* call per line; rebuilt on `tis/v3/stop-event-query` instead,
-  which shows the rest of the day plus an early one tomorrow, matching
-  what Stagecoach's own app/site shows — at the cost of being scheduled
-  only for now. Blending `stop-monitor`'s live/delay data back in for the
-  nearest departure is a reasonable future enhancement, not built here.
-  No caching (the response is small and the window is wide, cheap to
-  refetch every poll), no disruption or stop-closure concept.
+  *next* call per line; rebuilt on `tis/v3/stop-event-query` for the rest
+  of the day plus an early one tomorrow, matching what Stagecoach's own
+  app/site shows — then blended `stop-monitor`'s live delay and
+  cancellation data back in for whichever of those scheduled departures
+  it's currently tracking, matched by `{line, aimed instant}` since the
+  two endpoints use unrelated journey ids. A cancelled bus is kept, not
+  hidden, shown as "Cancelled" in place of a time
+  (`Foxbus.Domain.Arrival.eta_text/1`) and skipped when deciding whether
+  to show the big countdown screen (`Foxbus.Screens.Layout.mode/2`), so
+  it can't tick down toward a bus that isn't coming. If the live fetch
+  fails, the scheduled list still shows, just without the overlay for
+  that poll. No caching (both responses are small, cheap to refetch
+  every poll), no disruption or stop-closure concept.
 
   The key has no unauthenticated fallback (confirmed live: a wrong key
   gets a 401), so it must be set, as a secret, via Storage:

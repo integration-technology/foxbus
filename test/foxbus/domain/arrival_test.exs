@@ -30,6 +30,11 @@ defmodule Foxbus.Domain.ArrivalTest do
     test "marks tomorrow's first services, so a late-night time isn't mistaken for tonight" do
       assert Arrival.eta_text(arrival(400, ~T[06:25:00], :tomorrow)) == "Tomorrow 06:25"
     end
+
+    test "a cancelled bus always reads Cancelled, even if it's due any minute" do
+      cancelled = %{arrival(2, ~T[10:02:00]) | cancelled?: true}
+      assert Arrival.eta_text(cancelled) == "Cancelled"
+    end
   end
 
   test "sort_by_eta puts the soonest first" do

@@ -86,17 +86,33 @@ defmodule Foxbus.Screens.Layout do
   @spec minutes_left(non_neg_integer, non_neg_integer) :: non_neg_integer
   def minutes_left(eta_minutes, elapsed_ms), do: max(eta_minutes - div(elapsed_ms, 60_000), 0)
 
-  @doc "Which look a stop screen has, from its next bus."
+  @doc """
+  Which look a stop screen has, from its next *due* bus — a cancelled one
+  is skipped for this, even if it's soonest by eta_minutes: a ticking
+  countdown to a bus that isn't coming would be actively misleading, not
+  just unhelpful (see `Foxbus.Domain.Arrival.eta_text/1`). It still shows
+  in the list (`next_due/1` only changes which bus drives soon/arriving
+  mode, not what `body/3` renders), so the stop isn't left looking empty.
+  """
   @spec mode([Arrival.t()] | nil, non_neg_integer) :: mode
-  def mode([next | _], elapsed_ms) do
-    case minutes_left(next.eta_minutes, elapsed_ms) do
-      m when m <= @arriving_minutes -> {:arriving, m}
-      m when m <= @soon_minutes -> {:soon, m}
-      _ -> :list
+  def mode(arrivals, elapsed_ms) do
+    case next_due(arrivals) do
+      nil ->
+        :list
+
+      next ->
+        case minutes_left(next.eta_minutes, elapsed_ms) do
+          m when m <= @arriving_minutes -> {:arriving, m}
+          m when m <= @soon_minutes -> {:soon, m}
+          _ -> :list
+        end
     end
   end
 
-  def mode(_arrivals, _elapsed_ms), do: :list
+  @doc "The soonest arrival that isn't cancelled, or nil — see `mode/2`."
+  @spec next_due([Arrival.t()] | nil) :: Arrival.t() | nil
+  def next_due(nil), do: nil
+  def next_due(arrivals), do: Enum.find(arrivals, &(not &1.cancelled?))
 
   @doc """
   The bell after a press of the dial: pressing arms it; pressing again disarms
@@ -295,11 +311,11 @@ defmodule Foxbus.Screens.Layout do
           body(arrivals, background, show_destination?) ++ warning_line(disruption, background)
 
       {:soon, m} ->
-        countdown(title, hd(arrivals), m, @orange, bell, false) ++
+        countdown(title, next_due(arrivals), m, @orange, bell, false) ++
           warning_line(disruption, @orange)
 
       {:arriving, m} ->
-        countdown(title, hd(arrivals), m, @green, bell, uncertain?) ++
+        countdown(title, next_due(arrivals), m, @green, bell, uncertain?) ++
           warning_line(disruption, @green)
     end
   end
