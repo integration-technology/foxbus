@@ -2,128 +2,154 @@ defmodule Foxbus.Adapters.Sources.StagecoachProviderTest do
   use ExUnit.Case, async: true
   alias Foxbus.Adapters.Sources.StagecoachProvider
 
-  # A December date, not the real 21 Oct capture date, so UTC == UK local
-  # (GMT, not BST) and the fixture times below don't need a BST offset
-  # worked into them by hand.
-  @now ~N[2026-12-21 18:32:00]
+  # A December date, not the real 21-22 Oct capture dates, so UTC == UK
+  # local (GMT, not BST) and these fixture times don't need a BST offset
+  # worked in by hand. The real captured response below (a separate test)
+  # keeps its genuine BST timestamps.
+  @now ~N[2026-12-21 15:00:00]
 
-  # Shaped like the real stop-monitor response (confirmed live against
-  # api.stagecoachbus.com for Murthly, Primary School, 21 Oct) — a live
-  # call carries both aimed and expected times and no status flag beyond
-  # cancelled; status: :live is inferred from the presence of an expected
-  # time, not a separate field.
-  defp call(overrides) do
+  defp event(overrides) do
     Map.merge(
       %{
-        "operatorRef" => "SCFI",
-        "lineRef" => "34A",
-        "stopPointName" => "Primary School",
-        "destinationDisplay" => "Spittalfield",
-        "timingPoint" => false,
-        "direction" => "OUTBOUND",
-        "cancelled" => false,
-        "aimedDepartureTime" => "2026-12-21T18:32:00Z"
+        "StopLabel" => "64803547",
+        "ScheduledArrivalTime" => %{"value" => "2026-12-21T16:25:00.000+00:00"},
+        "ScheduledDepartureTime" => %{"value" => "2026-12-21T16:25:00.000+00:00"},
+        "Trip" => %{
+          "TripId" => "79291",
+          "Service" => %{
+            "ServiceId" => "XHBO034.O",
+            "Mode" => "bus",
+            "Operator" => %{"OperatorCode" => "SPH", "PublicName" => "Stagecoach in Perth"},
+            "ServiceNumber" => "34",
+            "Description" => "Perth - Spittalfield or Dunkeld",
+            "Direction" => "outbound"
+          },
+          "DestinationBoard" => "Spittalfield"
+        }
       },
       overrides
     )
   end
 
-  defp monitor(calls),
-    do: %{
-      "stopMonitors" => %{"stopMonitor" => [%{"monitoredCalls" => %{"monitoredCall" => calls}}]}
-    }
+  defp events(list), do: %{"Events" => %{"Event" => list}}
 
-  test "a live call prefers the expected time over aimed, and counts as live" do
-    json = monitor([call(%{"expectedDepartureTime" => "2026-12-21T18:35:42Z"})])
-    assert [a] = StagecoachProvider.parse_stop_monitor(json, @now)
-    assert {a.line, a.destination, a.status, a.eta_minutes} == {"34A", "Spittalfield", :live, 3}
-    assert a.scheduled_time == ~T[18:35:42]
+  describe "parse_stop_id/1" do
+    test "splits latitude, longitude, and the stop label" do
+      assert StagecoachProvider.parse_stop_id("56.520319,-3.465884,64803548") ==
+               {:ok, {56.520319, -3.465884, "64803548"}}
+    end
+
+    test "a malformed stop_id is an error, not a crash" do
+      assert StagecoachProvider.parse_stop_id("64803548") == {:error, :invalid_stop_id}
+
+      assert StagecoachProvider.parse_stop_id("not,numbers,64803548") ==
+               {:error, :invalid_stop_id}
+    end
   end
 
-  test "no expected time falls back to aimed, and counts as scheduled" do
-    json = monitor([call(%{})])
-    assert [a] = StagecoachProvider.parse_stop_monitor(json, @now)
-    assert {a.status, a.eta_minutes} == {:scheduled, 0}
-    assert a.scheduled_time == ~T[18:32:00]
-  end
-
-  test "a cancelled call is dropped" do
-    json =
-      monitor([call(%{"cancelled" => true, "expectedDepartureTime" => "2026-12-21T18:35:00Z"})])
-
-    assert StagecoachProvider.parse_stop_monitor(json, @now) == []
-  end
-
-  test "several calls across several lines" do
-    json =
-      monitor([
-        call(%{"lineRef" => "34", "destinationDisplay" => "Dunkeld"}),
-        call(%{"lineRef" => "34A", "destinationDisplay" => "Spittalfield"})
-      ])
-
-    assert [a1, a2] = StagecoachProvider.parse_stop_monitor(json, @now)
-    assert {a1.line, a1.destination} == {"34", "Dunkeld"}
-    assert {a2.line, a2.destination} == {"34A", "Spittalfield"}
-  end
-
-  test "a departure after midnight rolls over to tomorrow" do
-    json = monitor([call(%{"aimedDepartureTime" => "2026-12-22T05:30:00Z"})])
-    assert [a] = StagecoachProvider.parse_stop_monitor(json, @now)
-    assert a.day == :tomorrow
-  end
-
-  test "no stop monitors at all parses to an empty list" do
-    assert StagecoachProvider.parse_stop_monitor(%{"stopMonitors" => %{}}, @now) == []
-  end
-
-  test "no monitored calls at all (nothing due) parses to an empty list" do
-    json = %{"stopMonitors" => %{"stopMonitor" => [%{"stopPointLabel" => "64803547"}]}}
-    assert StagecoachProvider.parse_stop_monitor(json, @now) == []
-  end
-
-  test "the real captured response (Murthly Primary School, 21 Oct 18:3x BST) parses" do
-    # Pasted verbatim from a live curl against api.stagecoachbus.com, so
-    # the timestamps are genuinely BST (UTC+1) — a live BST eta needs the
-    # same UK-local 'now' @now itself is in, see Foxbus.LondonTime.
-    json = %{
-      "stopMonitors" => %{
-        "stopMonitor" => [
-          %{
-            "stopPointLabel" => "64803547",
-            "monitoredCalls" => %{
-              "monitoredCall" => [
-                %{
-                  "operatorRef" => "SCFI",
-                  "datedVehicleJourneyRef" => "647",
-                  "visitNumber" => 33,
-                  "lineRef" => "34A",
-                  "stopPointLabel" => "64803547",
-                  "stopPointName" => "Primary School",
-                  "destinationDisplay" => "Spittalfield",
-                  "timingPoint" => false,
-                  "direction" => "OUTBOUND",
-                  "vehicleRef" => "SCFI-74025",
-                  "cancelled" => false,
-                  "expectedArrivalTime" => "2026-10-21T18:35:40Z",
-                  "expectedDepartureTime" => "2026-10-21T18:35:42Z",
-                  "aimedArrivalTime" => "2026-10-21T18:32:00Z",
-                  "aimedDepartureTime" => "2026-10-21T18:32:00Z"
-                }
-              ]
+  describe "parse_stop_events/3" do
+    test "keeps only events at the matching stop label — the endpoint returns every nearby stop" do
+      json =
+        events([
+          event(%{
+            "StopLabel" => "64803547",
+            "Trip" => %{
+              "Service" => %{"ServiceNumber" => "34"},
+              "DestinationBoard" => "Spittalfield"
             }
+          }),
+          event(%{
+            "StopLabel" => "64803548",
+            "Trip" => %{"Service" => %{"ServiceNumber" => "34"}, "DestinationBoard" => "Perth"}
+          })
+        ])
+
+      assert [a] = StagecoachProvider.parse_stop_events(json, "64803547", @now)
+      assert a.destination == "Spittalfield"
+    end
+
+    test "reads line, destination, and scheduled time" do
+      json = events([event(%{})])
+      assert [a] = StagecoachProvider.parse_stop_events(json, "64803547", @now)
+      assert {a.line, a.destination, a.status} == {"34", "Spittalfield", :scheduled}
+      assert a.scheduled_time == ~T[16:25:00]
+      assert a.eta_minutes == 85
+    end
+
+    test "several departures, same stop" do
+      json =
+        events([
+          event(%{"ScheduledDepartureTime" => %{"value" => "2026-12-21T16:25:00.000+00:00"}}),
+          event(%{"ScheduledDepartureTime" => %{"value" => "2026-12-21T17:35:00.000+00:00"}})
+        ])
+
+      assert [a1, a2] = StagecoachProvider.parse_stop_events(json, "64803547", @now)
+      assert a1.scheduled_time == ~T[16:25:00]
+      assert a2.scheduled_time == ~T[17:35:00]
+    end
+
+    test "a departure after midnight rolls over to tomorrow" do
+      json =
+        events([
+          event(%{"ScheduledDepartureTime" => %{"value" => "2026-12-22T05:30:00.000+00:00"}})
+        ])
+
+      assert [a] = StagecoachProvider.parse_stop_events(json, "64803547", @now)
+      assert a.day == :tomorrow
+    end
+
+    test "an event missing a required field is skipped, not a crash" do
+      json =
+        events([
+          %{
+            "StopLabel" => "64803547",
+            "ScheduledDepartureTime" => %{"value" => "2026-12-21T16:25:00.000+00:00"}
           }
+        ])
+
+      assert StagecoachProvider.parse_stop_events(json, "64803547", @now) == []
+    end
+
+    test "no events at all parses to an empty list" do
+      assert StagecoachProvider.parse_stop_events(%{"Events" => %{}}, "64803547", @now) == []
+    end
+  end
+
+  test "the real captured response (Murthly, 21 Oct, BST) parses both stops correctly" do
+    # Pasted verbatim from a live stop-event-query capture — genuinely BST
+    # timestamps (+01:00), confirming LondonTime.to_local/1 isn't needed
+    # here since the offset is already explicit in the ISO string, but
+    # the eta/day math downstream still needs a UK-local 'now' to compare
+    # against.
+    json = %{
+      "Events" => %{
+        "Event" => [
+          event(%{
+            "StopLabel" => "64803547",
+            "ScheduledDepartureTime" => %{"value" => "2026-10-22T16:25:00.000+01:00"},
+            "Trip" => %{
+              "Service" => %{"ServiceNumber" => "34"},
+              "DestinationBoard" => "Spittalfield"
+            }
+          }),
+          event(%{
+            "StopLabel" => "64803548",
+            "ScheduledDepartureTime" => %{"value" => "2026-10-22T16:44:00.000+01:00"},
+            "Trip" => %{"Service" => %{"ServiceNumber" => "34"}, "DestinationBoard" => "Perth"}
+          })
         ]
       }
     }
 
-    # "now" is 19:32 UK local (BST, +1h on the response's UTC timestamps)
-    # — just before the real expectedDepartureTime below, BST-converted.
-    assert [a] = StagecoachProvider.parse_stop_monitor(json, ~N[2026-10-21 19:32:00])
-    assert {a.line, a.destination, a.status, a.eta_minutes} == {"34A", "Spittalfield", :live, 3}
-    # The response's 18:35:42Z is UTC; confirms LondonTime.to_local/1
-    # applies the BST offset to a real captured timestamp (not just a
-    # hand-built one), landing on 19:35:42 UK local.
-    assert a.scheduled_time == ~T[19:35:42]
+    now = ~N[2026-10-22 15:53:00]
+
+    assert [spittalfield] = StagecoachProvider.parse_stop_events(json, "64803547", now)
+
+    assert {spittalfield.destination, spittalfield.scheduled_time} ==
+             {"Spittalfield", ~T[16:25:00]}
+
+    assert [perth] = StagecoachProvider.parse_stop_events(json, "64803548", now)
+    assert {perth.destination, perth.scheduled_time} == {"Perth", ~T[16:44:00]}
   end
 
   describe "disruptions?/0 and closures?/0" do

@@ -237,22 +237,33 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   shows no live/real-time indicator on this page. No caching (the
   departures fragment is small, cheap to refetch every poll), and no
   disruption or stop-closure concept yet.
-- `:stagecoach` — live departures from Stagecoach's own real-time API
-  (`stop_id` is Stagecoach's own `stopPointLabel` — confirmed the same
-  numeric id bustimes.org uses for the same stop, e.g. `64803547` for
-  Murthly, Primary School; `lines` are route numbers, e.g. `"34"`,
-  `"34A"`). **Unofficial and unsupported** — see
-  `Foxbus.Adapters.Sources.StagecoachHttp`'s moduledoc for the full
-  story: the `X-SC-apiKey` this sends isn't issued to this project, it
-  was found embedded in stagecoachbus.com's own website JavaScript via a
-  browser network capture. No developer docs exist for this endpoint as
-  far as we could find. Built on Owain's own explicit decision, accepting
-  that it can stop working at any time without notice — if it does,
-  `fetch_arrivals/2` just returns an error like any other failed fetch,
-  no special handling. Genuinely live (both an aimed and an expected
-  time per call, so a real delay shows), unlike `:bustimes`. No caching
-  (a handful of calls per stop, cheap to refetch), no disruption or
-  stop-closure concept.
+- `:stagecoach` — scheduled departures from Stagecoach's own real-time
+  API (`stop_id` is `"<latitude>,<longitude>,<stopLabel>"`, not just a
+  stop code — see `Foxbus.Adapters.Sources.StagecoachProvider`'s
+  moduledoc for why this endpoint needs a geocode, not a stop id; `lines`
+  is accepted but unused in the request, same as `:carousel`/`:bustimes`
+  — `Foxbus.Arrivals`' own line filtering narrows it down afterwards).
+  For Murthly: `"56.52027187440903,-3.466028151335207,64803547"` (at
+  Primary School) and `"56.52031850489555,-3.465883661467104,64803548"`
+  (opp Primary School) — both lat/lon pairs are straight from a real
+  Stagecoach API response, not guessed. **Unofficial and
+  unsupported** — see `Foxbus.Adapters.Sources.StagecoachHttp`'s
+  moduledoc for the full story: the `X-SC-apiKey` this sends isn't
+  issued to this project, it was found embedded in stagecoachbus.com's
+  own website JavaScript via a browser network capture. No developer
+  docs exist for either endpoint this provider uses as far as we could
+  find. Built on Owain's own explicit decision, accepting that it can
+  stop working at any time without notice — if it does, `fetch_arrivals/2`
+  just returns an error like any other failed fetch, no special handling.
+  Started on `adc/stop-monitor` (SIRI Stop Monitoring, genuinely live —
+  an aimed and an expected time per call) but that only ever returns the
+  *next* call per line; rebuilt on `tis/v3/stop-event-query` instead,
+  which shows the rest of the day plus an early one tomorrow, matching
+  what Stagecoach's own app/site shows — at the cost of being scheduled
+  only for now. Blending `stop-monitor`'s live/delay data back in for the
+  nearest departure is a reasonable future enhancement, not built here.
+  No caching (the response is small and the window is wide, cheap to
+  refetch every poll), no disruption or stop-closure concept.
 
   The key has no unauthenticated fallback (confirmed live: a wrong key
   gets a 401), so it must be set, as a secret, via Storage:
