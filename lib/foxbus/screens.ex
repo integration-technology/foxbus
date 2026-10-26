@@ -61,6 +61,16 @@ defmodule Foxbus.Screens do
   is open (the underlying screen index is frozen on `:splash`, which never
   chirps), rather than interrupting a Wi-Fi flow to show a stop screen. A bus
   going imminent mid-settings is silent until settings is left.
+
+  Opt-in `config :foxbus, auto_cycle_ms: ms` steps through the stop screens
+  on a timer (wrapping, skipping the splash and settings) — for a watch-only
+  display with no dial, such as the public host-mode page behind
+  `host_viewer_controls: false`, which would otherwise sit on one screen
+  forever. Off (`nil`) by default, so a normal Nest with a dial is
+  unchanged. While enabled, a `Power.keep_awake(:auto_cycle)` hold is taken
+  for the process's whole lifetime rather than released between steps —
+  this is app policy (an unattended display should just stay lit), not
+  something the SDK's host mode needs to know about.
   """
   use GenServer
   alias NestGen2.{Display, Image, Piezo, Power}
@@ -105,6 +115,13 @@ defmodule Foxbus.Screens do
     schedule_tick()
     auto_advance_timer = Process.send_after(self(), :auto_advance, @auto_advance_ms)
 
+    auto_cycle_ms = Application.get_env(:foxbus, :auto_cycle_ms)
+
+    if auto_cycle_ms do
+      {:ok, _hold} = Power.keep_awake(:auto_cycle)
+      Process.send_after(self(), :auto_cycle, auto_cycle_ms)
+    end
+
     screens = [:splash | Enum.map(stops, & &1.key)]
     default_index = Enum.find_index(screens, &(&1 == Foxbus.Config.default_screen())) || 0
 
@@ -129,6 +146,7 @@ defmodule Foxbus.Screens do
       chirping: nil,
       power_hold: nil,
       auto_advance_timer: auto_advance_timer,
+      auto_cycle_ms: auto_cycle_ms,
       settings: nil,
       settings_power_hold: nil,
       settings_idle_timer: nil,
@@ -322,6 +340,20 @@ defmodule Foxbus.Screens do
 
       _ ->
         {:noreply, state}
+    end
+  end
+
+  # Steps through the stop screens only — wraps without ever landing on the
+  # splash (index 0) or moving while settings is open. See the moduledoc.
+  def handle_info(:auto_cycle, state) do
+    Process.send_after(self(), :auto_cycle, state.auto_cycle_ms)
+    stop_count = length(state.screens) - 1
+
+    if state.settings == nil and stop_count > 0 do
+      next_index = rem(state.index, stop_count) + 1
+      {:noreply, %{state | index: next_index} |> render() |> update_chirp()}
+    else
+      {:noreply, state}
     end
   end
 
