@@ -18,6 +18,13 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
       A single success resets the count, so the fast retries are for
       recovering quickly from a blip, not a permanently broken source.
 
+  Skips polling entirely while the system clock is still obviously unset
+  (confirmed live: right after a cold boot following a flat battery, the
+  Nest's clock reads 2000-01-01 until `NestGen2.Clock` syncs it, ~75 s in —
+  a poll landing in that window computed ETAs and cached a timetable
+  against the wrong day). Retried every `@clock_unset_retry_ms` until the
+  clock looks sane, rather than waiting out the normal cadence.
+
   Every failure is logged at warning; the first success is also logged, once,
   at info — so a stop stuck "Checking times" after boot (see
   `Foxbus.Screens`) leaves a trace of whether fetching ever worked at all,
@@ -32,6 +39,8 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   @tight_threshold_minutes 5
   @no_service_retry_ms 30 * 60_000
   @retry_backoff_ms [10_000, 30_000]
+  @clock_unset_retry_ms 5_000
+  @clock_sane_year 2024
 
   def start_link({provider, stop, stop_id, lines, delay_ms}),
     do:
@@ -75,6 +84,19 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
   def handle_cast(:poll_now, state), do: do_poll(state)
 
   defp do_poll(state) do
+    if clock_set?() do
+      fetch_and_schedule(state)
+    else
+      Process.send_after(self(), :poll, @clock_unset_retry_ms)
+      {:noreply, state}
+    end
+  end
+
+  @doc false
+  @spec clock_set?(DateTime.t()) :: boolean
+  def clock_set?(now \\ DateTime.utc_now()), do: now.year >= @clock_sane_year
+
+  defp fetch_and_schedule(state) do
     result =
       Foxbus.Arrivals.fetch_and_publish(state.provider, state.stop, state.stop_id, state.lines)
 
