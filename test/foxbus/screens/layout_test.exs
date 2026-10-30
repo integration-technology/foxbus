@@ -139,7 +139,8 @@ defmodule Foxbus.Screens.LayoutTest do
       assert length(texts(Layout.stop("To Riverside", buses))) == 3 * 2
     end
 
-    test "with a stop_name, a fixed stop-and-direction line replaces the title" do
+    test "with a stop_name, a fixed stop-and-direction line replaces the title, " <>
+           "and rows stay plain — the header already says where they're all going" do
       ops =
         Layout.stop(
           "To Riverside",
@@ -152,13 +153,7 @@ defmodule Foxbus.Screens.LayoutTest do
           "Mapleton"
         )
 
-      assert texts(ops) == [
-               "Mapleton → Riverside",
-               "104  11 min",
-               "Riverside",
-               "105  18 min",
-               "Hilltown"
-             ]
+      assert texts(ops) == ["Mapleton → Riverside", "104  11 min", "105  18 min"]
     end
 
     test "without a stop_name, the title is dropped as before" do

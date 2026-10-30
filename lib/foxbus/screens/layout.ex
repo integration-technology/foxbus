@@ -14,10 +14,15 @@ defmodule Foxbus.Screens.Layout do
     * more than 10 minutes away — the list of buses on dark grey (blank when
       there are none left today); if the ones shown go to more than one
       destination — a shared stop watching several lines (a stop's own
-      `lines`, see `Foxbus.Config`) — each row gets its own destination under it,
-      since the screen's one configured title can't speak for all of them.
-      No alarm can be set from here — only the countdown screens below have
-      a single bus to arm
+      `lines`, see `Foxbus.Config`) — each row gets its own destination under
+      it, since the screen's one configured title can't speak for all of
+      them. Not when `stop_name` is set, though: its fixed "Mapleton →
+      Somewhere" header (see `stop/9`) already names the direction for every
+      row, including a loop service's own minor destination-text variants
+      (confirmed live: Carousel's "Chesham + Chartridge" differs slightly by
+      which way round a circular route runs), so rows there stay the plain,
+      bigger line+time text instead of repeating it. No alarm can be set
+      from here — only the countdown screens below have a single bus to arm
     * 10 minutes or less (`:soon`) — orange, the minutes as a large countdown
     * 5 minutes or less (`:arriving`) — green; a bell armed by a press (see
       `press/2`) chirps here, until muted or the bus has gone
@@ -308,7 +313,8 @@ defmodule Foxbus.Screens.Layout do
           end
 
         [{:background, background} | title_line] ++
-          body(arrivals, background, show_destination?) ++ warning_line(disruption, background)
+          body(arrivals, background, show_destination?, stop_name) ++
+          warning_line(disruption, background)
 
       {:soon, m} ->
         countdown(title, next_due(arrivals), m, @orange, bell, false) ++
@@ -408,13 +414,23 @@ defmodule Foxbus.Screens.Layout do
       else: String.slice(text, 0, max_chars - 1) <> "…"
   end
 
-  defp body(nil, background, _show_destination?),
+  defp body(nil, background, _show_destination?, _stop_name),
     do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, background)}]
 
-  defp body(arrivals, background, show_destination?) do
+  # A stop_name already gives a fixed "Mapleton → Somewhere" header (see
+  # title_line above) that speaks for every row, including a loop service's
+  # own minor destination-text variants — so, unlike a multi-destination
+  # stop with no stop_name (where the title is dropped and each row's own
+  # destination is the only thing saying where it goes), rows here stay the
+  # plain, bigger line+time text instead of repeating a destination nobody
+  # needs to re-read on every row.
+  defp body(arrivals, background, show_destination?, stop_name) do
     cond do
-      multi_destination?(arrivals) or show_destination? ->
-        body_with_destinations(arrivals, background, not show_destination?)
+      show_destination? ->
+        body_with_destinations(arrivals, background, false)
+
+      multi_destination?(arrivals) and is_nil(stop_name) ->
+        body_with_destinations(arrivals, background, true)
 
       true ->
         body_rows(arrivals, background)
