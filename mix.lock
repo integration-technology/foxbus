@@ -1,5 +1,5 @@
 %{
   "floki": {:hex, :floki, "0.38.4", "10f98971e892aed2c2f1b3a0f928e488e3797e1c6dd3dfd98db40b14e9a78bcf", [:mix], [], "hexpm", "bdb34645eee8e79845c7edaca2d4099a52804ee4d4a3ecc683a69451f0244973"},
   "jason": {:hex, :jason, "1.4.5", "2e3a008590b0b8d7388c20293e9dcc9cf3e5d642fd2a114e4cbbb52e595d940a", [:mix], [{:decimal, "~> 1.0 or ~> 2.0 or ~> 3.0", [hex: :decimal, repo: "hexpm", optional: true]}], "hexpm", "b0c823996102bcd0239b3c2444eb00409b72f6a140c1950bc8b457d836b30684"},
-  "nest_gen2": {:hex, :nest_gen2, "0.6.1", "4f1c67d4c975e13b5c3f266daa3286c77d2c855951f9d640b430fae9abc0e5d4", [:mix], [], "hexpm", "edb8b47ee479d6e57c12051f8b0029f69130bbd6022b6bf2c577262291da60b0"},
+  "nest_gen2": {:hex, :nest_gen2, "0.6.5", "525b99067115612f4513d98d5a159a006a800484b971e908d6e4383eb65a7255", [:mix], [], "hexpm", "669c97d129ae5841ddd1db37bc93b4c74d880cc0bba78ffc03354386b4a6c897"},
 }
