@@ -11,6 +11,7 @@ entry in [CHANGELOG.md](CHANGELOG.md).
 
 | foxbus | nest_gen2 |
 |---|---|
+| 0.3.x | 0.6.x |
 | 0.2.x | 0.2.x |
 | 0.1.x | 0.1.x |
 
@@ -24,6 +25,12 @@ for overriding this):
 
 These are placeholder stops — see "Run foxbus on your own Nest" below for
 pointing them at real ones.
+
+On a watch-only host-mode display with no dial (such as the public gallery
+behind `host_viewer_controls: false` — see nest_gen2's `docs/host.md`), an
+opt-in `config :foxbus, auto_cycle_ms: <ms>` steps through the stop screens
+on a timer instead, wrapping and skipping the splash and settings. It's off
+(`nil`) by default, so a normal Nest with a dial is unchanged.
 
 A stop screen says "Checking times" until its first stop-closure check has
 come back — this happens on every boot — rather than risk showing a
@@ -281,6 +288,26 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   or, running on a computer (nest_gen2's host mode), read first from a
   `STAGECOACH_API_KEY` environment variable — same pattern, same reasons,
   as `:tfl`'s `TFL_APP_KEY` above (an empty value counts as unset).
+- `:chiltern_rail` — live Chiltern Railways departures from National
+  Rail's own Darwin feed (OpenLDBWS), the genuine live board (estimated/
+  actual times, cancellations), not a timetable. `stop_id` is
+  `"<origin CRS>,<destination CRS>"` (National Rail's three-letter station
+  codes), e.g. `"AMR,MYB"` for Amersham towards Marylebone — a destination
+  is needed, not just an origin, so OpenLDBWS can filter to services
+  actually heading that way; look a station's CRS code up at
+  https://www.nationalrail.co.uk/stations/. `lines` is accepted but
+  unused — every row's `line` is the response's own operator code
+  (`"CH"`). No disruption or stop-closure concept yet. Needs a free Rail
+  Data Marketplace token (register at https://raildata.org.uk, subscribe
+  to "OpenLDBWS"/"Live Departure Board"), set as a secret via Storage:
+
+  ```sh
+  ../nest_gen2_sdk/platform/storage.sh foxbus put chiltern_rail_token '"<your token>"'
+  ```
+
+  or, running on a computer (nest_gen2's host mode), a `CHILTERN_RAIL_TOKEN`
+  environment variable read first, same pattern as `:tfl`'s `TFL_APP_KEY`
+  above. See `Foxbus.Adapters.Sources.ChilternRailProvider`'s moduledoc.
 
 Adding more providers (more transport operators, more APIs) means adding a
 module implementing `Foxbus.Ports.Provider` and listing it in `all/0` — a

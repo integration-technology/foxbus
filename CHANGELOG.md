@@ -4,7 +4,37 @@ All notable changes to `foxbus`. Versions follow [Semantic Versioning](https://s
 while the version is 0.x, a minor release (0.1 → 0.2) may change behaviour.
 
 Depends on [`nest_gen2`](https://github.com/integration-technology/nest_gen2_sdk);
-foxbus 0.2.x targets nest_gen2 0.2.x.
+foxbus 0.3.x targets nest_gen2 0.6.x.
+
+## 0.3.0 (2026-11-01)
+
+- Screens are no longer Carousel-only: `Foxbus.Ports.Provider` lets each
+  stop name its own data source, and `Foxbus.Config`'s `stops` list now
+  carries a `provider` per stop alongside its `stop_id`/`lines`. An
+  existing install's older flat stop shape migrates to this automatically
+  at boot, defaulting every stop to `provider: :carousel`.
+- New providers: `:tfl` (TfL Underground scheduled departures and live
+  line status), `:bustimes` (scheduled departures scraped from
+  bustimes.org), `:stagecoach` (Stagecoach's own unofficial live API,
+  blending live delay/cancellation data into its scheduled board), and
+  `:chiltern_rail` (live Chiltern Railways departures from National
+  Rail's own Darwin feed via OpenLDBWS).
+- A multi-destination stop (a loop route, or a stop shared by more than
+  one route) can now carry an optional `stop_name`, showing a fixed
+  "Stop → Direction" header instead of dropping the title outright; once
+  set, per-row destinations are suppressed too, since the header already
+  says where every bus on screen is going.
+- Opt-in `config :foxbus, auto_cycle_ms: ms` steps through the stop
+  screens on a timer for a watch-only host-mode display with no dial
+  (such as a public gallery) — off by default, so a normal Nest is
+  unchanged.
+- Reliability: pollers back off on consecutive failures instead of
+  retrying every 10 s forever, stagger their first fetch on boot, and
+  skip polling (retrying every 5 s) while the system clock is still
+  unset after a cold boot from a flat battery, rather than computing
+  ETAs against the year 2000.
+- Dependency: `nest_gen2` bumped to `~> 0.6.1` (host mode, needed by the
+  public watch-only gallery) and updated through 0.6.6.
 
 ## 0.2.0 (2026-10-03)
 

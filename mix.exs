@@ -4,7 +4,7 @@ defmodule Foxbus.MixProject do
   def project do
     [
       app: :foxbus,
-      version: "0.2.0",
+      version: "0.3.0",
       # The Nest runs Elixir 1.17 on OTP 26: build with that toolchain
       # (source nest_gen2_sdk/platform/host_env.sh).
       elixir: "~> 1.17",
