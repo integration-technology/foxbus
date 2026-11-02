@@ -460,6 +460,16 @@ defmodule Foxbus.Screens.Layout do
   # like every pixel-exact choice here; expect another pass once there's a
   # capture to check nothing's crowded or run off the safe circle.
   @row_size 36
+  # A real capture (Murthly -> Spittalfield, "34  Tomorrow 07:34", 18
+  # chars) showed @row_size running off both edges of the round screen —
+  # there's no font-metrics API on this device to measure text width, so
+  # this is a conservative character-count guess, not a measured one: a
+  # short "line  eta" combo ("34  at 15:22", 12 chars) was never reported
+  # as cut off, "Tomorrow HH:MM"'s extra length was, so the cutoff sits
+  # between the two. Expect another pass once there's a capture of this
+  # smaller size to confirm it actually fits.
+  @row_max_chars 14
+  @row_size_long 26
   @multi_dest_row_size 30
   @multi_dest_destination_size 18
 
@@ -469,9 +479,10 @@ defmodule Foxbus.Screens.Layout do
     |> Enum.with_index()
     |> Enum.map(fn {a, i} ->
       color = if a.status == :live, do: @white, else: @dim
+      text = "#{a.line}  #{Arrival.eta_text(a)}"
+      size = if String.length(text) > @row_max_chars, do: @row_size_long, else: @row_size
 
-      {:text, 160, @row_y + i * @row_gap, "#{a.line}  #{Arrival.eta_text(a)}",
-       text_opts(@row_size, color, background)}
+      {:text, 160, @row_y + i * @row_gap, text, text_opts(size, color, background)}
     end)
   end
 

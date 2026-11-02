@@ -68,6 +68,22 @@ defmodule Foxbus.Screens.LayoutTest do
       assert scheduled != live
     end
 
+    test "a row long enough to run off the round screen (a 'Tomorrow' row) shrinks " <>
+           "its font instead of overflowing" do
+      # Confirmed live (Murthly -> Spittalfield): "34  Tomorrow 07:34" at
+      # the normal row size ran off both edges of the round screen.
+      ops =
+        Layout.stop("To Mapleton", [
+          arrival("105", 14, :live, ~T[15:07:00]),
+          %{arrival("34", 500, :live, ~T[07:34:00]) | day: :tomorrow}
+        ])
+
+      [_background, _title, normal_row, long_row] = ops
+      assert elem(normal_row, 4)[:size] == 36
+      assert elem(long_row, 3) == "34  Tomorrow 07:34"
+      assert elem(long_row, 4)[:size] == 26
+    end
+
     test "before the first fetch it says it is checking" do
       assert texts(Layout.stop("To Mapleton", nil)) == ["To Mapleton", "Checking times"]
     end
