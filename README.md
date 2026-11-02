@@ -290,23 +290,24 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   as `:tfl`'s `TFL_APP_KEY` above (an empty value counts as unset).
 - `:chiltern_rail` — live Chiltern Railways departures from National
   Rail's own Darwin feed (OpenLDBWS), the genuine live board (estimated/
-  actual times, cancellations), not a timetable — a plain REST/JSON API
-  (see realtime.nationalrail.co.uk/LDBWS/docs/documentation.html), not the
-  older SOAP service of the same name. `stop_id` is
-  `"<origin CRS>,<destination CRS>"` (National Rail's three-letter station
-  codes), e.g. `"AMR,MYB"` for Amersham towards Marylebone — a destination
-  is needed, not just an origin, so OpenLDBWS can filter to services
-  actually heading that way; look a station's CRS code up at
-  https://www.nationalrail.co.uk/stations/. `lines` is accepted but
-  unused — every row's `line` is the response's own operator code
-  (`"CH"`). No disruption or stop-closure concept yet. Needs a licensed
-  account's username and issued token, sent as HTTP Basic Auth —
-  pre-encode `username:token` yourself (e.g.
-  `printf '%s:%s' "$USERNAME" "$TOKEN" | base64`) and set the result as
-  a secret via Storage:
+  actual times, cancellations), not a timetable — a plain REST/JSON API,
+  served through the Rail Data Marketplace gateway
+  (api1.raildata.org.uk), not the older SOAP service of the same name.
+  `stop_id` is `"<origin CRS>,<destination CRS>"` (National Rail's
+  three-letter station codes), e.g. `"AMR,MYB"` for Amersham towards
+  Marylebone — a destination is needed, not just an origin, so OpenLDBWS
+  can filter to services actually heading that way; look a station's CRS
+  code up at https://www.nationalrail.co.uk/stations/. `lines` is
+  accepted but unused — every row's `line` is the response's own operator
+  code (`"CH"`). No disruption or stop-closure concept yet. Needs a free
+  Rail Data Marketplace account (register at https://raildata.org.uk,
+  subscribe to "Live Departure Board"); the API key — labelled "Consumer
+  key" on the product's own Specification tab, sent as a plain `x-apikey`
+  header, not Basic Auth, not the "Consumer secret" shown alongside it —
+  set as a secret via Storage:
 
   ```sh
-  ../nest_gen2_sdk/platform/storage.sh foxbus put chiltern_rail_token '"<base64 username:token>"'
+  ../nest_gen2_sdk/platform/storage.sh foxbus put chiltern_rail_token '"<consumer key>"'
   ```
 
   or, running on a computer (nest_gen2's host mode), a `CHILTERN_RAIL_TOKEN`

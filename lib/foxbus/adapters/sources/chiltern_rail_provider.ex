@@ -38,12 +38,11 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   provider here started from. No caching: OpenLDBWS responses are small,
   cheap to refetch every poll, same as `StagecoachProvider`.
 
-  **Unverified against live data** — see
-  `Foxbus.Adapters.Sources.ChilternRailHttp`'s moduledoc: built from the
-  live OpenAPI spec, not checked against a real response yet (there was no
-  Rail Data Marketplace token to test with). Confirm the parsing here
-  against a real captured response once there is one, the same way every
-  other provider in this codebase was checked live before being trusted.
+  **Verified against a real response** (2026-11-02, Amersham → Marylebone,
+  via a real Rail Data Marketplace API key) — `parse_board/1` and
+  `to_arrival/2` here match the live shape as-is; only
+  `Foxbus.Adapters.Sources.ChilternRailHttp`'s request (base URL and auth)
+  needed fixing, see its moduledoc.
   """
 
   @behaviour Foxbus.Ports.Provider

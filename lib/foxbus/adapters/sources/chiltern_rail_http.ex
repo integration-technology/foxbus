@@ -1,46 +1,45 @@
 defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
   @moduledoc """
-  GET for National Rail's OpenLDBWS live departure-board REST API
-  (realtime.nationalrail.co.uk/LDBWS/api/20220120), returning the decoded
-  JSON body.
+  GET for National Rail's OpenLDBWS live departure-board REST API, served
+  through the Rail Data Marketplace gateway
+  (api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120),
+  returning the decoded JSON body.
 
-  **This replaces this module's first cut**, which built a SOAP 1.1
-  envelope against the old (2021-11-01 WSDL) OpenLDBWS schema. Checked
-  against the live OpenAPI spec itself
-  (realtime.nationalrail.co.uk/LDBWS/static/ldbws.json,
-  linked from .../LDBWS/docs/documentation.html): the current service is
-  plain REST returning JSON, not SOAP — there is no envelope, no XML, and
-  no SOAP `AccessToken` header. Confirmed from the spec's own operation
-  list and schema; **still unverified against an actual response** — no
-  token existed yet to test against. Confirm the field names below
-  (`parse_board`/`parse_service` in
-  `Foxbus.Adapters.Sources.ChilternRailProvider`) once there's one.
+  **Verified against a real response** (2026-11-02, Amersham → Marylebone)
+  — this is the third cut of this module. The first built a SOAP 1.1
+  envelope against the old WSDL schema; the second guessed REST/JSON with
+  HTTP Basic Auth straight against `realtime.nationalrail.co.uk`, reasoning
+  from that domain's own docs page — both wrong. The actual base URL and
+  auth scheme only showed up on the subscribed product's own
+  "Specification" tab on raildata.org.uk (a known-flaky page — see that
+  product's Community tab if it won't load): requests go through
+  `api1.raildata.org.uk`, not `realtime.nationalrail.co.uk` directly, and
+  auth is a single `x-apikey` header carrying the product's own "Consumer
+  key" — not Basic Auth, and the "Consumer secret" shown alongside it
+  isn't used for this call at all. The JSON field names
+  (`trainServices`/`std`/`etd`/`destination`/`operatorCode`/`isCancelled`)
+  did match the second cut's guess, confirmed live — no change needed in
+  `Foxbus.Adapters.Sources.ChilternRailProvider`'s parsing.
 
-  Auth is HTTP Basic (`Authorization: Basic <credentials>`), per
-  .../LDBWS/docs/documentation.html: "All licensed users will be issued
-  with a token/password to access public web services." `<credentials>`
-  is the already-base64-encoded `username:password` string — this module
-  takes it pre-encoded, same single-secret shape as every other
-  provider's key here, rather than two separate secrets it would encode
-  itself. Read from `CHILTERN_RAIL_TOKEN` first (a host run — same
-  reasoning as `Foxbus.Adapters.Sources.TflProvider`'s `TFL_APP_KEY`),
+  `CHILTERN_RAIL_TOKEN` holds the Consumer key as-is (not base64, not a
+  username:password pair) — read from the environment first (a host run —
+  same reasoning as `Foxbus.Adapters.Sources.TflProvider`'s `TFL_APP_KEY`),
   then `NestGen2.Storage` (`storage.sh foxbus put chiltern_rail_token
-  '"<base64 string>"'`). Never in mix.exs. No unauthenticated fallback —
-  OpenLDBWS always requires credentials.
+  '"<consumer key>"'`). Never in mix.exs. No unauthenticated fallback.
   """
 
   alias NestGen2.Storage
 
-  @base_url "https://realtime.nationalrail.co.uk/LDBWS/api/20220120"
+  @base_url "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
 
   @spec get_departure_board(String.t(), String.t(), non_neg_integer) ::
           {:ok, map} | {:error, term}
   def get_departure_board(crs, filter_crs, num_rows \\ 10) do
-    with {:ok, credentials} <- fetch_credentials() do
+    with {:ok, api_key} <- fetch_credentials() do
       url =
         "#{@base_url}/GetDepartureBoard/#{crs}?numRows=#{num_rows}&filterCrs=#{filter_crs}&filterType=to"
 
-      headers = [{~c"authorization", String.to_charlist("Basic " <> credentials)}]
+      headers = [{~c"x-apikey", String.to_charlist(api_key)}]
       http_opts = [ssl: ssl_opts(), timeout: 15_000, connect_timeout: 10_000]
       request = {String.to_charlist(url), headers}
 

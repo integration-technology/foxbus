@@ -24,6 +24,60 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
     }
   end
 
+  describe "parse_board/1 against a real captured response" do
+    # Captured live 2026-11-02 from GetDepartureBoard/AMR?filterCrs=MYB —
+    # trimmed to the fields parse_board/1 reads, extra real-world fields
+    # (futureCancellation, origin, assocIsCancelled, ...) left in to prove
+    # they're harmlessly ignored.
+    @real_response %{
+      "trainServices" => [
+        %{
+          "futureCancellation" => false,
+          "futureDelay" => false,
+          "origin" => [
+            %{"locationName" => "Aylesbury", "crs" => "AYS", "assocIsCancelled" => false}
+          ],
+          "destination" => [
+            %{"locationName" => "London Marylebone", "crs" => "MYB", "assocIsCancelled" => false}
+          ],
+          "std" => "16:08",
+          "etd" => "On time",
+          "operator" => "Chiltern Railways",
+          "operatorCode" => "CH",
+          "isCircularRoute" => false,
+          "isCancelled" => false,
+          "filterLocationCancelled" => false,
+          "serviceType" => "train",
+          "length" => 2,
+          "detachFront" => false,
+          "isReverseFormation" => false,
+          "serviceID" => "10297629AMERSHM_"
+        }
+      ],
+      "generatedAt" => "2026-11-02T16:07:54.7725479+00:00",
+      "locationName" => "Amersham",
+      "crs" => "AMR",
+      "filterLocationName" => "London Marylebone",
+      "filtercrs" => "MYB",
+      "filterType" => "to",
+      "platformAvailable" => false,
+      "areServicesAvailable" => true,
+      "Xmlns" => %{"Count" => 8}
+    }
+
+    test "parses the real shape" do
+      assert [service] = ChilternRailProvider.parse_board(@real_response)
+
+      assert service == %{
+               std: {16, 8},
+               etd: "On time",
+               destination: "London Marylebone",
+               operator_code: "CH",
+               cancelled?: false
+             }
+    end
+  end
+
   describe "parse_stop_id/1" do
     test "splits the origin and destination CRS codes" do
       assert ChilternRailProvider.parse_stop_id("AMR,MYB") == {:ok, {"AMR", "MYB"}}
