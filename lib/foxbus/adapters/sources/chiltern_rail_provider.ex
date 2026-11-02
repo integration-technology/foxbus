@@ -5,25 +5,33 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   live board (estimated/actual times, cancellations), not a static
   timetable, unlike `Foxbus.Adapters.Sources.TflProvider`.
 
+  **This replaces this module's first cut**, which parsed a SOAP/XML
+  response with regexes. The live OpenLDBWS is REST/JSON (see
+  `ChilternRailHttp`'s moduledoc) — `parse_board/1`/`parse_service/1` now
+  read the decoded JSON body's `trainServices` list directly, and a
+  service's own `isCancelled` boolean is used instead of inferring
+  cancellation from `etd` text.
+
   **`stop_id` is `"<origin CRS>,<destination CRS>"`**, e.g. `"AMR,MYB"` for
   Amersham towards Marylebone — not just an origin station, because
-  OpenLDBWS' `GetDepartureBoardRequest` needs a destination to filter by
-  (`filterCrs`/`filterType: "to"`) to get only the services actually
-  heading that way, the same reason `Foxbus.Adapters.Sources.StagecoachProvider`'s
-  `stop_id` carries more than one value. CRS codes are National Rail's own
-  three-letter station codes (Amersham `AMR`, Marylebone `MYB`) — look one
-  up at https://www.nationalrail.co.uk/stations/ or in the OpenLDBWS docs.
+  `GetDepartureBoard`'s `filterCrs`/`filterType=to` needs a destination to
+  filter by to get only the services actually heading that way, the same
+  reason `Foxbus.Adapters.Sources.StagecoachProvider`'s `stop_id` carries
+  more than one value. CRS codes are National Rail's own three-letter
+  station codes (Amersham `AMR`, Marylebone `MYB`) — look one up at
+  https://www.nationalrail.co.uk/stations/ or in the OpenLDBWS docs.
 
   `lines` is accepted but unused — Amersham's main line has exactly one
   operator (Chiltern Railways), so there is nothing to filter by; every
   row's `line` is instead the response's own `operatorCode` ("CH").
 
   A cancelled service is kept, not dropped, same as
-  `StagecoachProvider` — `cancelled?: true`, scheduled time preserved. An
-  `etd` of a specific revised time is read as live with the computed delay;
-  "On time" is live with zero delay; a generic "Delayed" (no specific
-  revised time given) and anything unrecognised stay `:scheduled` against
-  the original time instead of guessing a delay that isn't in the response.
+  `StagecoachProvider` — `cancelled?: true` (from the response's own
+  `isCancelled`), scheduled time preserved. A specific revised `etd` is
+  read as live with the computed delay; "On time" is live with zero
+  delay; anything else unrecognised (a generic "Delayed" with no revised
+  time, say) stays `:scheduled` against the original time instead of
+  guessing a delay that isn't in the response.
 
   No disruption or stop-closure concept here yet (`disruptions?/0`/
   `closures?/0` both false) — a first cut, same minimal pattern every other
@@ -32,11 +40,10 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
 
   **Unverified against live data** — see
   `Foxbus.Adapters.Sources.ChilternRailHttp`'s moduledoc: built from the
-  published OpenLDBWS schema, not checked against a real response yet
-  (there was no Rail Data Marketplace token to test with). Confirm the
-  parsing here against a real captured response once there is one, the
-  same way every other provider in this codebase was checked live before
-  being trusted.
+  live OpenAPI spec, not checked against a real response yet (there was no
+  Rail Data Marketplace token to test with). Confirm the parsing here
+  against a real captured response once there is one, the same way every
+  other provider in this codebase was checked live before being trusted.
   """
 
   @behaviour Foxbus.Ports.Provider
@@ -61,9 +68,9 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   @impl true
   def fetch_arrivals(stop_id, _lines) do
     with {:ok, {origin, destination}} <- parse_stop_id(stop_id),
-         {:ok, xml} <- ChilternRailHttp.post(request_xml(origin, destination)) do
+         {:ok, body} <- ChilternRailHttp.get_departure_board(origin, destination, @num_rows) do
       now = Foxbus.LondonTime.now()
-      {:ok, xml |> parse_board() |> Enum.map(&to_arrival(&1, now))}
+      {:ok, body |> parse_board() |> Enum.map(&to_arrival(&1, now))}
     end
   end
 
@@ -79,69 +86,54 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
     end
   end
 
-  defp request_xml(origin, destination) do
-    """
-    <GetDepartureBoardRequest xmlns="http://thalesgroup.com/RTTI/2021-11-01/ldb/">
-      <numRows>#{@num_rows}</numRows>
-      <crs>#{origin}</crs>
-      <filterCrs>#{destination}</filterCrs>
-      <filterType>to</filterType>
-    </GetDepartureBoardRequest>
-    """
-  end
-
   @doc false
-  # Each <service>...</service> block parsed to its std/etd/destination/
-  # operatorCode — a block missing std or a destination name is skipped
-  # rather than crashing the whole board.
-  @spec parse_board(String.t()) :: [map]
-  def parse_board(xml) do
-    ~r/<(?:[\w]+:)?service>(.*?)<\/(?:[\w]+:)?service>/s
-    |> Regex.scan(xml)
-    |> Enum.map(fn [_, block] -> parse_service(block) end)
-    |> Enum.reject(&is_nil/1)
+  # Each entry of the decoded body's `trainServices` parsed to its
+  # std/etd/destination/operatorCode/isCancelled — an entry missing std or
+  # a destination name is skipped rather than crashing the whole board.
+  @spec parse_board(map) :: [map]
+  def parse_board(%{"trainServices" => services}) when is_list(services) do
+    services |> Enum.map(&parse_service/1) |> Enum.reject(&is_nil/1)
   end
 
-  defp parse_service(block) do
-    with std when not is_nil(std) <- tag(block, "std"),
-         {:ok, std_hm} <- parse_hhmm(std),
-         destination when not is_nil(destination) <- destination_name(block) do
+  def parse_board(_), do: []
+
+  defp parse_service(%{"std" => std} = service) when is_binary(std) do
+    with {:ok, std_hm} <- parse_hhmm(std),
+         destination when not is_nil(destination) <- destination_name(service) do
       %{
         std: std_hm,
-        etd: tag(block, "etd") || "On time",
+        etd: service["etd"] || "On time",
         destination: destination,
-        operator_code: tag(block, "operatorCode") || "CH"
+        operator_code: service["operatorCode"] || "CH",
+        cancelled?: service["isCancelled"] == true
       }
     else
       _ -> nil
     end
   end
 
-  defp destination_name(block) do
-    case Regex.run(~r/<(?:[\w]+:)?destination>(.*?)<\/(?:[\w]+:)?destination>/s, block) do
-      [_, dest_block] -> tag(dest_block, "locationName")
-      nil -> nil
-    end
-  end
+  defp parse_service(_), do: nil
 
-  defp tag(xml, name) do
-    case Regex.run(~r/<(?:[\w]+:)?#{name}>([^<]*)<\/(?:[\w]+:)?#{name}>/, xml) do
-      [_, value] -> value
-      nil -> nil
-    end
-  end
+  defp destination_name(%{"destination" => [%{"locationName" => name} | _]}), do: name
+  defp destination_name(_), do: nil
 
   @doc false
   # `now` is UK local time; passed in so parsing is testable.
   @spec to_arrival(map, NaiveDateTime.t()) :: Arrival.t()
   def to_arrival(
-        %{std: {std_hour, std_minute}, etd: etd, destination: destination, operator_code: line},
+        %{
+          std: {std_hour, std_minute},
+          etd: etd,
+          destination: destination,
+          operator_code: line,
+          cancelled?: cancelled?
+        },
         now
       ) do
     now_minutes = now.hour * 60 + now.minute
     std_total = std_hour * 60 + std_minute
 
-    {status, delay_minutes, cancelled?, display_total} = enrich(etd, std_total)
+    {status, delay_minutes, display_total} = enrich(etd, std_total, cancelled?)
 
     %Arrival{
       line: line,
@@ -154,17 +146,17 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
     }
   end
 
-  defp enrich("On time", std_total), do: {:live, 0, false, std_total}
-  defp enrich("Cancelled", std_total), do: {:scheduled, nil, true, std_total}
+  defp enrich(_etd, std_total, true), do: {:scheduled, nil, std_total}
+  defp enrich("On time", std_total, false), do: {:live, 0, std_total}
 
-  defp enrich(etd, std_total) do
+  defp enrich(etd, std_total, false) do
     case parse_hhmm(etd) do
       {:ok, {hour, minute}} ->
         total = hour * 60 + minute
-        {:live, total - std_total, false, total}
+        {:live, total - std_total, total}
 
       :error ->
-        {:scheduled, nil, false, std_total}
+        {:scheduled, nil, std_total}
     end
   end
 

@@ -5,37 +5,23 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
   @now ~N[2026-10-30 10:00:00]
 
   defp service(fields) do
-    """
-    <lt7:service>
-      <lt4:std>#{fields[:std] || "10:05"}</lt4:std>
-      <lt4:etd>#{fields[:etd] || "On time"}</lt4:etd>
-      <lt4:operatorCode>#{fields[:operator_code] || "CH"}</lt4:operatorCode>
-      <lt7:destination>
-        <lt4:location>
-          <lt4:locationName>#{fields[:destination] || "London Marylebone"}</lt4:locationName>
-          <lt4:crs>MYB</lt4:crs>
-        </lt4:location>
-      </lt7:destination>
-    </lt7:service>
-    """
+    %{
+      "std" => fields[:std] || "10:05",
+      "etd" => fields[:etd] || "On time",
+      "operatorCode" => fields[:operator_code] || "CH",
+      "isCancelled" => Keyword.get(fields, :is_cancelled, false),
+      "destination" => [
+        %{"locationName" => fields[:destination] || "London Marylebone", "crs" => "MYB"}
+      ]
+    }
   end
 
   defp board(services) do
-    """
-    <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-      <soap:Body>
-        <GetDepartureBoardResponse xmlns="http://thalesgroup.com/RTTI/2021-11-01/ldb/">
-          <GetStationBoardResult>
-            <lt4:locationName>Amersham</lt4:locationName>
-            <lt4:crs>AMR</lt4:crs>
-            <lt7:trainServices>
-              #{Enum.join(services)}
-            </lt7:trainServices>
-          </GetStationBoardResult>
-        </GetDepartureBoardResponse>
-      </soap:Body>
-    </soap:Envelope>
-    """
+    %{
+      "locationName" => "Amersham",
+      "crs" => "AMR",
+      "trainServices" => services
+    }
   end
 
   describe "parse_stop_id/1" do
@@ -51,33 +37,38 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
   end
 
   describe "parse_board/1" do
-    test "reads std, etd, destination, and operator code from each service" do
-      xml = board([service(std: "10:05", etd: "On time", destination: "London Marylebone")])
+    test "reads std, etd, destination, operator code, and cancelled from each service" do
+      body = board([service(std: "10:05", etd: "On time", destination: "London Marylebone")])
 
-      assert [s] = ChilternRailProvider.parse_board(xml)
+      assert [s] = ChilternRailProvider.parse_board(body)
 
       assert s == %{
                std: {10, 5},
                etd: "On time",
                destination: "London Marylebone",
-               operator_code: "CH"
+               operator_code: "CH",
+               cancelled?: false
              }
     end
 
     test "several services parse in document order" do
-      xml = board([service(std: "10:05"), service(std: "10:35"), service(std: "11:05")])
-      assert [a, b, c] = ChilternRailProvider.parse_board(xml)
+      body = board([service(std: "10:05"), service(std: "10:35"), service(std: "11:05")])
+      assert [a, b, c] = ChilternRailProvider.parse_board(body)
       assert {a.std, b.std, c.std} == {{10, 5}, {10, 35}, {11, 5}}
     end
 
     test "a service with a malformed std is skipped, not a crash" do
-      xml = board([service(std: "not-a-time"), service(std: "10:35")])
-      assert [s] = ChilternRailProvider.parse_board(xml)
+      body = board([service(std: "not-a-time"), service(std: "10:35")])
+      assert [s] = ChilternRailProvider.parse_board(body)
       assert s.std == {10, 35}
     end
 
-    test "no services at all parses to an empty list" do
+    test "no train services at all parses to an empty list" do
       assert ChilternRailProvider.parse_board(board([])) == []
+    end
+
+    test "a response missing trainServices entirely parses to an empty list" do
+      assert ChilternRailProvider.parse_board(%{"locationName" => "Amersham"}) == []
     end
   end
 
@@ -87,7 +78,8 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
         std: {10, 35},
         etd: "On time",
         destination: "London Marylebone",
-        operator_code: "CH"
+        operator_code: "CH",
+        cancelled?: false
       }
 
       a = ChilternRailProvider.to_arrival(event, @now)
@@ -103,19 +95,21 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
         std: {10, 35},
         etd: "10:42",
         destination: "London Marylebone",
-        operator_code: "CH"
+        operator_code: "CH",
+        cancelled?: false
       }
 
       a = ChilternRailProvider.to_arrival(event, @now)
       assert {a.status, a.delay_minutes, a.eta_minutes} == {:live, 7, 42}
     end
 
-    test "a cancelled service stays scheduled against std, marked cancelled" do
+    test "isCancelled stays scheduled against std, marked cancelled, regardless of etd text" do
       event = %{
         std: {11, 5},
         etd: "Cancelled",
         destination: "London Marylebone",
-        operator_code: "CH"
+        operator_code: "CH",
+        cancelled?: true
       }
 
       a = ChilternRailProvider.to_arrival(event, @now)
@@ -129,7 +123,8 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
         std: {10, 35},
         etd: "Delayed",
         destination: "London Marylebone",
-        operator_code: "CH"
+        operator_code: "CH",
+        cancelled?: false
       }
 
       a = ChilternRailProvider.to_arrival(event, @now)

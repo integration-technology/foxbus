@@ -1,55 +1,53 @@
 defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
   @moduledoc """
-  SOAP POST for National Rail's OpenLDBWS live departure-board service
-  (lite.realtime.nationalrail.co.uk), returning the raw XML body.
+  GET for National Rail's OpenLDBWS live departure-board REST API
+  (realtime.nationalrail.co.uk/LDBWS/api/20220120), returning the decoded
+  JSON body.
 
-  Unlike Carousel/TfL/bustimes.org, OpenLDBWS has no JSON response — it's a
-  SOAP 1.1 service, the Darwin live-data feed's own public interface.
-  `post/1` wraps the given request-body XML fragment in the SOAP envelope,
-  sets the access token in the SOAP header (not a URL query param, unlike
-  every other provider's key here — that's how this API expects it), and
-  returns the response body as a plain string for
-  `Foxbus.Adapters.Sources.ChilternRailProvider` to parse with a regex, the
-  same screen-scrape spirit as `Foxbus.Adapters.Sources.CarouselScrapeSource`
-  rather than pulling in a full XML/SOAP library for one request shape.
+  **This replaces this module's first cut**, which built a SOAP 1.1
+  envelope against the old (2021-11-01 WSDL) OpenLDBWS schema. Checked
+  against the live OpenAPI spec itself
+  (realtime.nationalrail.co.uk/LDBWS/static/ldbws.json,
+  linked from .../LDBWS/docs/documentation.html): the current service is
+  plain REST returning JSON, not SOAP — there is no envelope, no XML, and
+  no SOAP `AccessToken` header. Confirmed from the spec's own operation
+  list and schema; **still unverified against an actual response** — no
+  token existed yet to test against. Confirm the field names below
+  (`parse_board`/`parse_service` in
+  `Foxbus.Adapters.Sources.ChilternRailProvider`) once there's one.
 
-  **Unverified against live data** — built from the published OpenLDBWS
-  2021-11-01 WSDL schema, not a real captured response (no token existed
-  yet to test against, unlike every other provider's reverse-engineered-or-
-  registered build here). Confirm the envelope and `lt4:`/`lt7:` namespace
-  prefixes against a real response once there's a token, the same as every
-  other provider was checked live before being trusted.
-
-  Needs a free Rail Data Marketplace token (register at
-  https://raildata.org.uk, subscribe to "Live Departure Board — Staff
-  Version" or "OpenLDBWS"). Read from `CHILTERN_RAIL_TOKEN` first (a host
-  run — same reasoning as `Foxbus.Adapters.Sources.TflProvider`'s
-  `TFL_APP_KEY`), then from `NestGen2.Storage`
-  (`storage.sh foxbus put chiltern_rail_token '"<token>"'`). Never in
-  mix.exs. No unauthenticated fallback — OpenLDBWS always requires a token.
+  Auth is HTTP Basic (`Authorization: Basic base64(username:password)`),
+  per .../LDBWS/docs/documentation.html: "All licensed users will be
+  issued with a token/password to access public web services." The
+  username isn't documented there; most likely the registered account's
+  own identifier/email, with the issued token as the password — confirm
+  once real credentials exist. Two secrets, not one: `CHILTERN_RAIL_USERNAME`
+  / `CHILTERN_RAIL_TOKEN` env vars first (a host run — same reasoning as
+  `Foxbus.Adapters.Sources.TflProvider`'s `TFL_APP_KEY`), then
+  `NestGen2.Storage` (`storage.sh foxbus put chiltern_rail_username '"<...>"'`,
+  `... put chiltern_rail_token '"<...>"'`). Never in mix.exs. No
+  unauthenticated fallback — OpenLDBWS always requires credentials.
   """
 
   alias NestGen2.Storage
 
-  @base_url "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb11.asmx"
-  @soap_action "http://thalesgroup.com/RTTI/2021-11-01/ldb/GetDepartureBoard"
+  @base_url "https://realtime.nationalrail.co.uk/LDBWS/api/20220120"
 
-  @spec post(String.t()) :: {:ok, String.t()} | {:error, term}
-  def post(body_xml) do
-    with {:ok, token} <- fetch_token() do
+  @spec get_departure_board(String.t(), String.t(), non_neg_integer) ::
+          {:ok, map} | {:error, term}
+  def get_departure_board(crs, filter_crs, num_rows \\ 10) do
+    with {:ok, {username, token}} <- fetch_credentials() do
+      url =
+        "#{@base_url}/GetDepartureBoard/#{crs}?numRows=#{num_rows}&filterCrs=#{filter_crs}&filterType=to"
+
+      auth = "Basic " <> Base.encode64("#{username}:#{token}")
+      headers = [{~c"authorization", String.to_charlist(auth)}]
       http_opts = [ssl: ssl_opts(), timeout: 15_000, connect_timeout: 10_000]
-
-      headers = [
-        {~c"soapaction", String.to_charlist(@soap_action)}
-      ]
-
-      request =
-        {String.to_charlist(@base_url), headers, ~c"text/xml; charset=utf-8",
-         envelope(token, body_xml)}
+      request = {String.to_charlist(url), headers}
 
       with {:ok, {{_, 200, _}, _resp_headers, resp_body}} <-
-             :httpc.request(:post, request, http_opts, body_format: :binary) do
-        {:ok, resp_body}
+             :httpc.request(:get, request, http_opts, body_format: :binary) do
+        Jason.decode(resp_body)
       else
         {:ok, {{_, status, _}, _headers, _body}} -> {:error, {:unexpected_status, status}}
         {:error, reason} -> {:error, reason}
@@ -57,31 +55,22 @@ defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
     end
   end
 
-  defp envelope(token, body_xml) do
-    """
-    <?xml version="1.0" encoding="utf-8"?>
-    <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:typ="http://thalesgroup.com/RTTI/2013-11-28/Token/types">
-      <soap:Header>
-        <typ:AccessToken>
-          <typ:TokenValue>#{token}</typ:TokenValue>
-        </typ:AccessToken>
-      </soap:Header>
-      <soap:Body>
-        #{body_xml}
-      </soap:Body>
-    </soap:Envelope>
-    """
+  defp fetch_credentials do
+    with {:ok, username} <- fetch_secret("CHILTERN_RAIL_USERNAME", :chiltern_rail_username),
+         {:ok, token} <- fetch_secret("CHILTERN_RAIL_TOKEN", :chiltern_rail_token) do
+      {:ok, {username, token}}
+    end
   end
 
-  defp fetch_token do
-    case System.get_env("CHILTERN_RAIL_TOKEN") do
-      token when is_binary(token) and token != "" ->
-        {:ok, token}
+  defp fetch_secret(env_var, storage_key) do
+    case System.get_env(env_var) do
+      value when is_binary(value) and value != "" ->
+        {:ok, value}
 
       _ ->
-        case Storage.get(:chiltern_rail_token, nil, app: :foxbus) do
+        case Storage.get(storage_key, nil, app: :foxbus) do
           nil -> {:error, :no_api_key}
-          token -> {:ok, token}
+          value -> {:ok, value}
         end
     end
   end
