@@ -300,18 +300,18 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   https://www.nationalrail.co.uk/stations/. `lines` is accepted but
   unused — every row's `line` is the response's own operator code
   (`"CH"`). No disruption or stop-closure concept yet. Needs a licensed
-  account's own username and issued token, sent as HTTP Basic Auth, set
-  as two secrets via Storage:
+  account's username and issued token, sent as HTTP Basic Auth —
+  pre-encode `username:token` yourself (e.g.
+  `printf '%s:%s' "$USERNAME" "$TOKEN" | base64`) and set the result as
+  a secret via Storage:
 
   ```sh
-  ../nest_gen2_sdk/platform/storage.sh foxbus put chiltern_rail_username '"<your username>"'
-  ../nest_gen2_sdk/platform/storage.sh foxbus put chiltern_rail_token '"<your token>"'
+  ../nest_gen2_sdk/platform/storage.sh foxbus put chiltern_rail_token '"<base64 username:token>"'
   ```
 
-  or, running on a computer (nest_gen2's host mode), `CHILTERN_RAIL_USERNAME`
-  / `CHILTERN_RAIL_TOKEN` environment variables read first, same pattern
-  as `:tfl`'s `TFL_APP_KEY` above. See
-  `Foxbus.Adapters.Sources.ChilternRailProvider`'s moduledoc.
+  or, running on a computer (nest_gen2's host mode), a `CHILTERN_RAIL_TOKEN`
+  environment variable read first, same pattern as `:tfl`'s `TFL_APP_KEY`
+  above. See `Foxbus.Adapters.Sources.ChilternRailProvider`'s moduledoc.
 
 Adding more providers (more transport operators, more APIs) means adding a
 module implementing `Foxbus.Ports.Provider` and listing it in `all/0` — a

@@ -16,17 +16,17 @@ defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
   (`parse_board`/`parse_service` in
   `Foxbus.Adapters.Sources.ChilternRailProvider`) once there's one.
 
-  Auth is HTTP Basic (`Authorization: Basic base64(username:password)`),
-  per .../LDBWS/docs/documentation.html: "All licensed users will be
-  issued with a token/password to access public web services." The
-  username isn't documented there; most likely the registered account's
-  own identifier/email, with the issued token as the password — confirm
-  once real credentials exist. Two secrets, not one: `CHILTERN_RAIL_USERNAME`
-  / `CHILTERN_RAIL_TOKEN` env vars first (a host run — same reasoning as
-  `Foxbus.Adapters.Sources.TflProvider`'s `TFL_APP_KEY`), then
-  `NestGen2.Storage` (`storage.sh foxbus put chiltern_rail_username '"<...>"'`,
-  `... put chiltern_rail_token '"<...>"'`). Never in mix.exs. No
-  unauthenticated fallback — OpenLDBWS always requires credentials.
+  Auth is HTTP Basic (`Authorization: Basic <credentials>`), per
+  .../LDBWS/docs/documentation.html: "All licensed users will be issued
+  with a token/password to access public web services." `<credentials>`
+  is the already-base64-encoded `username:password` string — this module
+  takes it pre-encoded, same single-secret shape as every other
+  provider's key here, rather than two separate secrets it would encode
+  itself. Read from `CHILTERN_RAIL_TOKEN` first (a host run — same
+  reasoning as `Foxbus.Adapters.Sources.TflProvider`'s `TFL_APP_KEY`),
+  then `NestGen2.Storage` (`storage.sh foxbus put chiltern_rail_token
+  '"<base64 string>"'`). Never in mix.exs. No unauthenticated fallback —
+  OpenLDBWS always requires credentials.
   """
 
   alias NestGen2.Storage
@@ -36,12 +36,11 @@ defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
   @spec get_departure_board(String.t(), String.t(), non_neg_integer) ::
           {:ok, map} | {:error, term}
   def get_departure_board(crs, filter_crs, num_rows \\ 10) do
-    with {:ok, {username, token}} <- fetch_credentials() do
+    with {:ok, credentials} <- fetch_credentials() do
       url =
         "#{@base_url}/GetDepartureBoard/#{crs}?numRows=#{num_rows}&filterCrs=#{filter_crs}&filterType=to"
 
-      auth = "Basic " <> Base.encode64("#{username}:#{token}")
-      headers = [{~c"authorization", String.to_charlist(auth)}]
+      headers = [{~c"authorization", String.to_charlist("Basic " <> credentials)}]
       http_opts = [ssl: ssl_opts(), timeout: 15_000, connect_timeout: 10_000]
       request = {String.to_charlist(url), headers}
 
@@ -56,19 +55,12 @@ defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
   end
 
   defp fetch_credentials do
-    with {:ok, username} <- fetch_secret("CHILTERN_RAIL_USERNAME", :chiltern_rail_username),
-         {:ok, token} <- fetch_secret("CHILTERN_RAIL_TOKEN", :chiltern_rail_token) do
-      {:ok, {username, token}}
-    end
-  end
-
-  defp fetch_secret(env_var, storage_key) do
-    case System.get_env(env_var) do
+    case System.get_env("CHILTERN_RAIL_TOKEN") do
       value when is_binary(value) and value != "" ->
         {:ok, value}
 
       _ ->
-        case Storage.get(storage_key, nil, app: :foxbus) do
+        case Storage.get(:chiltern_rail_token, nil, app: :foxbus) do
           nil -> {:error, :no_api_key}
           value -> {:ok, value}
         end
