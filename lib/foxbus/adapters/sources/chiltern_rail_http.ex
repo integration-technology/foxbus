@@ -21,10 +21,17 @@ defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
   did match the second cut's guess, confirmed live — no change needed in
   `Foxbus.Adapters.Sources.ChilternRailProvider`'s parsing.
 
-  `CHILTERN_RAIL_TOKEN` holds the Consumer key as-is (not base64, not a
-  username:password pair) — read from the environment first (a host run —
-  same reasoning as `Foxbus.Adapters.Sources.TflProvider`'s `TFL_APP_KEY`),
-  then `NestGen2.Storage` (`storage.sh foxbus put chiltern_rail_token
+  `RAIL_DATA_LDBWS_TOKEN` holds the Consumer key as-is (not base64, not a
+  username:password pair) — named for the Rail Data Marketplace product
+  itself (Live Departure Board, OpenLDBWS), not "Chiltern": the key isn't
+  scoped to Chiltern Railways or to Amersham/Marylebone at all, it's a
+  general National Rail live-departure-board credential that works for
+  any CRS station/filter this provider might ever be pointed at — this
+  module and `Foxbus.Adapters.Sources.ChilternRailProvider` just happen to
+  be the first (only) thing using it so far. Read from the environment
+  first (a host run — same reasoning as
+  `Foxbus.Adapters.Sources.TflProvider`'s `TFL_APP_KEY`), then
+  `NestGen2.Storage` (`storage.sh foxbus put rail_data_ldbws_token
   '"<consumer key>"'`). Never in mix.exs. No unauthenticated fallback.
   """
 
@@ -54,12 +61,12 @@ defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
   end
 
   defp fetch_credentials do
-    case System.get_env("CHILTERN_RAIL_TOKEN") do
+    case System.get_env("RAIL_DATA_LDBWS_TOKEN") do
       value when is_binary(value) and value != "" ->
         {:ok, value}
 
       _ ->
-        case Storage.get(:chiltern_rail_token, nil, app: :foxbus) do
+        case Storage.get(:rail_data_ldbws_token, nil, app: :foxbus) do
           nil -> {:error, :no_api_key}
           value -> {:ok, value}
         end

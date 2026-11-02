@@ -304,13 +304,15 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   subscribe to "Live Departure Board"); the API key — labelled "Consumer
   key" on the product's own Specification tab, sent as a plain `x-apikey`
   header, not Basic Auth, not the "Consumer secret" shown alongside it —
-  set as a secret via Storage:
+  isn't scoped to Chiltern or to this one station pair at all (it's a
+  general National Rail live-departure-board credential), so it's named
+  for the product rather than the provider: set as a secret via Storage:
 
   ```sh
-  ../nest_gen2_sdk/platform/storage.sh foxbus put chiltern_rail_token '"<consumer key>"'
+  ../nest_gen2_sdk/platform/storage.sh foxbus put rail_data_ldbws_token '"<consumer key>"'
   ```
 
-  or, running on a computer (nest_gen2's host mode), a `CHILTERN_RAIL_TOKEN`
+  or, running on a computer (nest_gen2's host mode), a `RAIL_DATA_LDBWS_TOKEN`
   environment variable read first, same pattern as `:tfl`'s `TFL_APP_KEY`
   above. See `Foxbus.Adapters.Sources.ChilternRailProvider`'s moduledoc.
 
