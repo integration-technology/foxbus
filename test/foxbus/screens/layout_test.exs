@@ -249,6 +249,49 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
+  describe "show_line? — a single-operator, single-destination stop (Chiltern)" do
+    test "false drops the line from list rows, keeping just the time" do
+      ops =
+        Layout.stop(
+          "To Marylebone",
+          [arrival_to("CH", 14, "London Marylebone")],
+          0,
+          :none,
+          nil,
+          false,
+          "#1C1C1E",
+          nil,
+          false,
+          false
+        )
+
+      assert texts(ops) == ["To Marylebone", "14 min"]
+    end
+
+    test "false also drops the line from the countdown screen" do
+      ops =
+        Layout.stop(
+          "To Marylebone",
+          [arrival_to("CH", 1, "London Marylebone")],
+          0,
+          :none,
+          nil,
+          false,
+          "#1C1C1E",
+          nil,
+          false,
+          false
+        )
+
+      assert texts(ops) == ["To Marylebone", "1", "min"]
+    end
+
+    test "true (the default) keeps the line, unchanged" do
+      ops = Layout.stop("To Mapleton", [arrival_to("105", 14, "Mapleton")])
+      assert texts(ops) == ["To Mapleton", "105  14 min"]
+    end
+  end
+
   describe "mode/2 and the countdown" do
     test "list beyond 10 minutes, orange at 10 or less, green at 5 or less" do
       assert Layout.mode([arrival("105", 11)], 0) == :list

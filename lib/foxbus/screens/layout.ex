@@ -252,6 +252,15 @@ defmodule Foxbus.Screens.Layout do
   decision explicit instead of inferring it from whether this particular
   poll's few departures happen to vary — unlike a Carousel stop, where
   the line (not the destination) is what tells two services apart.
+
+  `show_line?` (default true) drops the line/operator-code text entirely
+  — both on list rows and on the countdown screens — rather than
+  replacing it with the destination: for a stop like Chiltern's, whose
+  `stop_id` already filters to one destination (see
+  `Foxbus.Adapters.Sources.ChilternRailProvider`'s moduledoc), every row's
+  destination would just repeat the title and every row's line would just
+  repeat the operator code, so neither is worth a rider's eye; the time
+  alone is. Set per provider (see `Foxbus.Screens`), not per stop.
   """
   @spec stop(
           String.t(),
@@ -262,6 +271,7 @@ defmodule Foxbus.Screens.Layout do
           boolean,
           String.t(),
           String.t() | nil,
+          boolean,
           boolean
         ) :: list
   def stop(
@@ -273,7 +283,8 @@ defmodule Foxbus.Screens.Layout do
         uncertain? \\ false,
         background \\ @dark,
         stop_name \\ nil,
-        show_destination? \\ false
+        show_destination? \\ false,
+        show_line? \\ true
       ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
@@ -313,15 +324,15 @@ defmodule Foxbus.Screens.Layout do
           end
 
         [{:background, background} | title_line] ++
-          body(arrivals, background, show_destination?, stop_name) ++
+          body(arrivals, background, show_destination?, stop_name, show_line?) ++
           warning_line(disruption, background)
 
       {:soon, m} ->
-        countdown(title, next_due(arrivals), m, @orange, bell, false) ++
+        countdown(title, next_due(arrivals), m, @orange, bell, false, show_line?) ++
           warning_line(disruption, @orange)
 
       {:arriving, m} ->
-        countdown(title, next_due(arrivals), m, @green, bell, uncertain?) ++
+        countdown(title, next_due(arrivals), m, @green, bell, uncertain?, show_line?) ++
           warning_line(disruption, @green)
     end
   end
@@ -373,18 +384,23 @@ defmodule Foxbus.Screens.Layout do
     |> Enum.reverse()
   end
 
-  defp countdown(title, bus, minutes, color, bell, uncertain?) do
+  defp countdown(title, bus, minutes, color, bell, uncertain?, show_line?) do
     minutes_text = if uncertain?, do: "#{minutes}?", else: Integer.to_string(minutes)
     minutes_color = if uncertain?, do: @dim, else: @white
 
+    line_text =
+      if show_line?, do: [{:text, 160, 76, bus.line, text_opts(26, @white, color)}], else: []
+
     [
       {:background, color},
-      {:text, 160, 48, title, text_opts(22, @white, color)},
-      {:text, 160, 76, bus.line, text_opts(26, @white, color)},
-      {:text, 160, 102, minutes_text, text_opts(96, minutes_color, color)},
-      {:text, 160, 200, "min", text_opts(26, @white, color)}
-      | bell_icon(bell, color)
-    ]
+      {:text, 160, 48, title, text_opts(22, @white, color)}
+      | line_text
+    ] ++
+      [
+        {:text, 160, 102, minutes_text, text_opts(96, minutes_color, color)},
+        {:text, 160, 200, "min", text_opts(26, @white, color)}
+        | bell_icon(bell, color)
+      ]
   end
 
   defp bell_icon(:none, _color), do: []
@@ -414,7 +430,7 @@ defmodule Foxbus.Screens.Layout do
       else: String.slice(text, 0, max_chars - 1) <> "…"
   end
 
-  defp body(nil, background, _show_destination?, _stop_name),
+  defp body(nil, background, _show_destination?, _stop_name, _show_line?),
     do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, background)}]
 
   # A stop_name already gives a fixed "Mapleton → Somewhere" header (see
@@ -424,7 +440,7 @@ defmodule Foxbus.Screens.Layout do
   # destination is the only thing saying where it goes), rows here stay the
   # plain, bigger line+time text instead of repeating a destination nobody
   # needs to re-read on every row.
-  defp body(arrivals, background, show_destination?, stop_name) do
+  defp body(arrivals, background, show_destination?, stop_name, show_line?) do
     cond do
       show_destination? ->
         body_with_destinations(arrivals, background, false)
@@ -433,7 +449,7 @@ defmodule Foxbus.Screens.Layout do
         body_with_destinations(arrivals, background, true)
 
       true ->
-        body_rows(arrivals, background)
+        body_rows(arrivals, background, show_line?)
     end
   end
 
@@ -473,13 +489,13 @@ defmodule Foxbus.Screens.Layout do
   @multi_dest_row_size 30
   @multi_dest_destination_size 18
 
-  defp body_rows(arrivals, background) do
+  defp body_rows(arrivals, background, show_line?) do
     arrivals
     |> Enum.take(@max_rows)
     |> Enum.with_index()
     |> Enum.map(fn {a, i} ->
       color = if a.status == :live, do: @white, else: @dim
-      text = "#{a.line}  #{Arrival.eta_text(a)}"
+      text = if show_line?, do: "#{a.line}  #{Arrival.eta_text(a)}", else: Arrival.eta_text(a)
       size = if String.length(text) > @row_max_chars, do: @row_size_long, else: @row_size
 
       {:text, 160, @row_y + i * @row_gap, text, text_opts(size, color, background)}

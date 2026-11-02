@@ -132,6 +132,7 @@ defmodule Foxbus.Screens do
       backgrounds: Map.new(stops, fn stop -> {stop.key, stop_background(stop.provider)} end),
       show_destinations:
         Map.new(stops, fn stop -> {stop.key, show_destination?(stop.provider)} end),
+      show_lines: Map.new(stops, fn stop -> {stop.key, show_line?(stop.provider)} end),
       index: default_index,
       arrivals: %{},
       fetched_at: %{},
@@ -173,6 +174,14 @@ defmodule Foxbus.Screens do
   # worth a rider's eye. See Layout.stop/9's moduledoc.
   defp show_destination?(:tfl), do: true
   defp show_destination?(_provider), do: false
+
+  # Chiltern's stop_id already filters to one destination (see
+  # ChilternRailProvider's moduledoc), so every row's own line is always
+  # the same single operator code ("CH") the title already implies —
+  # Owain's call, dropping it as pure noise rather than showing it
+  # redundantly on every row and on the countdown screen.
+  defp show_line?(:chiltern_rail), do: false
+  defp show_line?(_provider), do: true
 
   defp closures_without_poller(stops) do
     stops
@@ -749,7 +758,8 @@ defmodule Foxbus.Screens do
                 false,
                 state.backgrounds[stop],
                 state.stop_names[stop],
-                state.show_destinations[stop]
+                state.show_destinations[stop],
+                state.show_lines[stop]
               )
 
             {:ok, nil} ->
@@ -762,7 +772,8 @@ defmodule Foxbus.Screens do
                 uncertain?(state, stop),
                 state.backgrounds[stop],
                 state.stop_names[stop],
-                state.show_destinations[stop]
+                state.show_destinations[stop],
+                state.show_lines[stop]
               )
 
             {:ok, explanation} ->
