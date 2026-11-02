@@ -27,6 +27,25 @@ defmodule Foxbus.Screens.SettingsLayoutTest do
       assert background(ops) == "#1C1C1E"
     end
 
+    test "shows the battery reading" do
+      s = Settings.open(@status, @versions, @screen_power, {:ok, 3_920})
+      assert "Battery 3.92 V" in texts(SettingsLayout.render(s))
+    end
+
+    test "shows an em dash with no battery reading" do
+      ops = SettingsLayout.render(Settings.open(@status, @versions, @screen_power))
+      assert "—" in texts(ops)
+    end
+
+    test "the battery line turns red once low" do
+      s = Settings.open(@status, @versions, @screen_power, {:ok, 3_400})
+
+      {:text, _x, _y, "Battery 3.40 V", opts} =
+        Enum.find(SettingsLayout.render(s), &match?({:text, _, _, "Battery 3.40 V", _}, &1))
+
+      assert opts[:color] == "#C62828"
+    end
+
     test "shows placeholders when not connected" do
       status = %{state: :disconnected, ssid: nil, ip: nil, signal_dbm: nil}
       ops = SettingsLayout.render(Settings.open(status, @versions, @screen_power))

@@ -85,7 +85,8 @@ defmodule Foxbus.Screens.Settings do
           connect_result: {:ok, map} | {:error, term} | nil,
           save_result: {String.t(), :ok | {:error, term}} | nil,
           idle_timeout_ms: idle_timeout,
-          wake_on_approach?: boolean
+          wake_on_approach?: boolean,
+          battery: {:ok, pos_integer} | :error
         }
 
   @type effect ::
@@ -109,7 +110,8 @@ defmodule Foxbus.Screens.Settings do
             connect_result: nil,
             save_result: nil,
             idle_timeout_ms: 30_000,
-            wake_on_approach?: true
+            wake_on_approach?: true,
+            battery: :error
 
   @menu_items [:change_wifi, :screen_power, :back]
   @network_action_items [:join, :save, :back]
@@ -127,23 +129,37 @@ defmodule Foxbus.Screens.Settings do
   @group_labels %{upper: "ABC", lower: "abc", digits: "123", symbols: "#+="}
 
   @doc """
-  Opens the menu screen, with the Wi-Fi status, versions, and the current
-  screen sleep/wake choice (see `Foxbus.ScreenPower`) to show.
+  Opens the menu screen, with the Wi-Fi status, versions, the current
+  screen sleep/wake choice (see `Foxbus.ScreenPower`), and the battery
+  reading (`NestGen2.BatteryGuard.millivolts/0`, `:error` on the host or if
+  the device has no reading, see `battery_updated/2`) to show.
   """
-  @spec open(WifiSource.status(), %{foxbus: String.t(), sdk: String.t()}, Foxbus.ScreenPower.t()) ::
-          t
-  def open(wifi_status, versions, screen_power) do
+  @spec open(
+          WifiSource.status(),
+          %{foxbus: String.t(), sdk: String.t()},
+          Foxbus.ScreenPower.t(),
+          {:ok, pos_integer} | :error
+        ) :: t
+  def open(wifi_status, versions, screen_power, battery \\ :error) do
     %__MODULE__{
       wifi_status: wifi_status,
       versions: versions,
       idle_timeout_ms: screen_power.idle_timeout_ms,
-      wake_on_approach?: screen_power.wake_on_approach?
+      wake_on_approach?: screen_power.wake_on_approach?,
+      battery: battery
     }
   end
 
   @doc "A live :wifi event while settings is open — refreshes the shown status."
   @spec wifi_updated(t, WifiSource.status()) :: t
   def wifi_updated(settings, status), do: %{settings | wifi_status: status}
+
+  @doc """
+  A battery poll while settings is open (see `Foxbus.Screens`, every ~5 s —
+  it moves with load and charging) refreshes the shown reading.
+  """
+  @spec battery_updated(t, {:ok, pos_integer} | :error) :: t
+  def battery_updated(settings, battery), do: %{settings | battery: battery}
 
   @doc "Moves the highlight or wheel position one step; wraps at the ends."
   @spec navigate(t, :cw | :ccw) :: t
@@ -340,6 +356,22 @@ defmodule Foxbus.Screens.Settings do
   def wheel_label(:delete), do: "⌫"
   def wheel_label(:done), do: "✓"
   def wheel_label(:cancel), do: "✗"
+
+  # Below this, NestGen2.BatteryGuard powers the Nest off at 3.4 V — a
+  # worthwhile early warning on the settings screen itself.
+  @low_battery_mv 3_500
+
+  @doc "\"Battery 3.92 V\", or \"—\" with no reading (the host, or a device error)."
+  @spec battery_text(t) :: String.t()
+  def battery_text(%{battery: {:ok, mv}}),
+    do: "Battery #{:erlang.float_to_binary(mv / 1000, decimals: 2)} V"
+
+  def battery_text(%{battery: :error}), do: "—"
+
+  @doc "True once the reading is low enough that NestGen2.BatteryGuard will soon power off."
+  @spec low_battery?(t) :: boolean
+  def low_battery?(%{battery: {:ok, mv}}), do: mv < @low_battery_mv
+  def low_battery?(%{battery: :error}), do: false
 
   @doc "A short label for an idle-timeout option, for the screen-power display."
   @spec idle_timeout_label(idle_timeout) :: String.t()

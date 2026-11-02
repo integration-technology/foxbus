@@ -35,6 +35,41 @@ defmodule Foxbus.Screens.SettingsTest do
     end
   end
 
+  describe "battery" do
+    test "open/4 defaults to :error (no reading yet) when no battery arg is given" do
+      assert open().battery == :error
+    end
+
+    test "open/4 carries a given reading" do
+      s = Settings.open(@status, @versions, @screen_power, {:ok, 3_920})
+      assert s.battery == {:ok, 3_920}
+    end
+
+    test "battery_updated/2 refreshes the shown reading without changing screen" do
+      s = open() |> Settings.battery_updated({:ok, 3_850})
+      assert s.battery == {:ok, 3_850}
+      assert s.screen == :menu
+    end
+
+    test "battery_text/1 formats millivolts as volts to two decimal places" do
+      s = open() |> Settings.battery_updated({:ok, 3_920})
+      assert Settings.battery_text(s) == "Battery 3.92 V"
+    end
+
+    test "battery_text/1 shows an em dash with no reading" do
+      assert Settings.battery_text(open()) == "—"
+    end
+
+    test "low_battery?/1 warns at 3.5 V, ahead of NestGen2.BatteryGuard's 3.4 V power-off" do
+      refute open() |> Settings.battery_updated({:ok, 3_600}) |> Settings.low_battery?()
+      assert open() |> Settings.battery_updated({:ok, 3_400}) |> Settings.low_battery?()
+    end
+
+    test "low_battery?/1 is false with no reading, not a false alarm" do
+      refute Settings.low_battery?(open())
+    end
+  end
+
   describe "menu navigation and selection" do
     test "turning wraps between the three items" do
       s = open()

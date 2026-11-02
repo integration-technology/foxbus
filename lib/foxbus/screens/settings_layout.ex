@@ -63,9 +63,19 @@ defmodule Foxbus.Screens.SettingsLayout do
         {:text, 160, 182, versions_text(s.versions), text_opts(13, @dim)},
         menu_item("Change Wi-Fi", 205, s.highlight == 0),
         menu_item("Screen", 235, s.highlight == 1),
-        menu_item("Back", 265, s.highlight == 2)
+        menu_item("Back", 265, s.highlight == 2),
+        # Below the menu items, not among them — supplementary like the
+        # versions line, not a selectable row. y=292 is an unverified guess
+        # (no capture yet), 27 px below "Back" (265) and comfortably inside
+        # the 145 px safe circle at this small a font.
+        {:text, 160, 292, Settings.battery_text(s), text_opts(13, battery_color(s))}
       ]
   end
+
+  # White would blend in with the rest of the menu's dim supplementary text
+  # (the versions line); red matches NestGen2.BatteryGuard's own cutoff
+  # (Settings.low_battery?/1), a visible warning before it powers off.
+  defp battery_color(s), do: if(Settings.low_battery?(s), do: @red, else: @dim)
 
   # Two rows (Screen, Wake on approach), each cycled in place by a press —
   # see Foxbus.Screens.Settings' :screen_power screen — then Back, same

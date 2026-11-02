@@ -324,7 +324,9 @@ runtime; see that module's moduledoc for why.
 ## Wi-Fi settings
 
 Pressing the dial on the splash opens settings: Wi-Fi status (SSID, IP,
-signal), the foxbus and SDK versions, and a flow to join a different network:
+signal), the foxbus and SDK versions, the battery voltage (read every ~5 s
+while open, turning red below 3.5 V — `NestGen2.BatteryGuard` powers the
+Nest off at 3.4 V), and a flow to join a different network:
 scan → pick → "Join now" or "Save for later", sharing a character-wheel
 password entry for secured networks it doesn't already know. "Save for
 later" stores a network (replacing any saved entry with the same SSID)

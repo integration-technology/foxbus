@@ -41,8 +41,14 @@ defmodule Foxbus.Screens do
   (if any) takes its place.
 
   Pressing the dial on the splash opens settings (`Foxbus.Screens.Settings`,
-  rendered by `Foxbus.Screens.SettingsLayout`) — Wi-Fi status, versions, and
-  changing network. While open: a `Power.keep_awake(:settings)` hold keeps
+  rendered by `Foxbus.Screens.SettingsLayout`) — Wi-Fi status, versions,
+  battery voltage, and changing network. The battery reading
+  (`NestGen2.BatteryGuard.millivolts/0`) is read on open and every
+  `@settings_battery_ms` (~5 s) while open — it moves with load and
+  charging — and shown "—" on the host or any other read failure, same as
+  every other device-only reading here; this is a separate timer from the
+  idle one and doesn't reset it, since reading the battery isn't user
+  interaction. While open: a `Power.keep_awake(:settings)` hold keeps
   the screen lit, the dial turns and presses route to `Settings.navigate/2`
   and `Settings.select/1` instead of the normal screens, and ~60 s idle
   returns to the splash. The password screen is a radial ring rather than a
@@ -85,6 +91,9 @@ defmodule Foxbus.Screens do
   # Two quick rising tones: {frequency Hz, length ms, delay ms from the start}.
   @chirp [{2600, 70, 0}, {3300, 90, 130}]
   @settings_idle_ms 60_000
+  # The battery voltage moves with load and charging, so it's worth
+  # refreshing while settings is open, not just read once on entry.
+  @settings_battery_ms 5_000
   @settings_result_ms 5_000
   # How long the next bus can read as due (0 min) before it's shown as
   # uncertain, and before it's dropped as gone — see the moduledoc.
@@ -152,7 +161,8 @@ defmodule Foxbus.Screens do
       settings_power_hold: nil,
       settings_idle_timer: nil,
       settings_result_timer: nil,
-      settings_task_ref: nil
+      settings_task_ref: nil,
+      settings_battery_timer: nil
     }
 
     {:ok, render(state)}
@@ -328,6 +338,23 @@ defmodule Foxbus.Screens do
   def handle_info(:settings_idle_timeout, state),
     do: {:noreply, state |> close_settings() |> render()}
 
+  # Doesn't reset the settings idle timer — unlike a dial turn or press,
+  # reading the battery isn't user interaction, so it shouldn't keep
+  # settings open indefinitely on its own.
+  def handle_info(:settings_battery_tick, %{settings: nil} = state), do: {:noreply, state}
+
+  def handle_info(:settings_battery_tick, state) do
+    timer = Process.send_after(self(), :settings_battery_tick, @settings_battery_ms)
+
+    state = %{
+      state
+      | settings: Settings.battery_updated(state.settings, battery_millivolts()),
+        settings_battery_timer: timer
+    }
+
+    {:noreply, render(state)}
+  end
+
   def handle_info(:settings_result_timeout, %{settings: %{screen: screen} = s} = state)
       when screen in [:result, :save_result],
       do:
@@ -447,11 +474,13 @@ defmodule Foxbus.Screens do
     versions = %{foxbus: foxbus_version(), sdk: sdk_version()}
     screen_power = Foxbus.ScreenPower.load()
     {:ok, hold} = Power.keep_awake(:settings)
+    timer = Process.send_after(self(), :settings_battery_tick, @settings_battery_ms)
 
     %{
       state
-      | settings: Settings.open(status, versions, screen_power),
-        settings_power_hold: hold
+      | settings: Settings.open(status, versions, screen_power, battery_millivolts()),
+        settings_power_hold: hold,
+        settings_battery_timer: timer
     }
     |> reset_settings_idle_timer()
   end
@@ -460,6 +489,7 @@ defmodule Foxbus.Screens do
     if state.settings_power_hold, do: Power.release(state.settings_power_hold)
     if state.settings_idle_timer, do: Process.cancel_timer(state.settings_idle_timer)
     if state.settings_result_timer, do: Process.cancel_timer(state.settings_result_timer)
+    if state.settings_battery_timer, do: Process.cancel_timer(state.settings_battery_timer)
 
     %{
       state
@@ -467,9 +497,17 @@ defmodule Foxbus.Screens do
         settings_power_hold: nil,
         settings_idle_timer: nil,
         settings_result_timer: nil,
-        settings_task_ref: nil
+        settings_task_ref: nil,
+        settings_battery_timer: nil
     }
   end
+
+  # NestGen2.BatteryGuard reads the head unit's own sensor, on or off the
+  # base — unlike the {:nest_gen2, :battery, %{millivolts}} events, which
+  # only arrive while the base is talking and missed the overnight drain
+  # this was added to surface. Returns :error on the host, same as every
+  # other device-only read here.
+  defp battery_millivolts, do: NestGen2.BatteryGuard.millivolts()
 
   defp reset_settings_idle_timer(state) do
     if state.settings_idle_timer, do: Process.cancel_timer(state.settings_idle_timer)
