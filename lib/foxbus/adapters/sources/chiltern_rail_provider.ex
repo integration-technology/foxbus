@@ -23,20 +23,26 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
 
   **A third, optional segment, `"AMR,MYB,both"`, shows both directions
   through the origin on one screen**: the usual departure board
-  (`"AMR"` towards `"MYB"`) merged with the reverse arrival board
-  (services arriving at `"AMR"` that came from `"MYB"`, via
-  `Foxbus.Adapters.Sources.ChilternRailHttp.get_arrival_board/3`), sorted
-  together by time — useful for, say, picking someone up at Amersham off a
-  train that started at Marylebone, on the same screen that already shows
-  Amersham's own departures towards Marylebone. `destination` is always the
-  real "other end" station name reported by whichever board the row came
-  from (a departure's actual destination, or an arrival's actual origin) —
-  for this one station pair they're normally identical ("London
-  Marylebone"), so `multi_destination?` (see `Foxbus.Screens.Layout`) stays
-  false and the screen's own configured title keeps showing. The two
-  directions are told apart instead by `line`, which this provider sets to
-  `"dep"` or `"arr"` rather than the response's own `operatorCode` — see
-  below.
+  (`"AMR"` towards `"MYB"`) plus a second one, `"MYB"` towards `"AMR"`
+  (`line: "arr"`) — **not `GetArrivalBoard`**, despite the name: confirmed
+  live (2026-11-03) that every `GetArrivalBoard` call 500s under this Rail
+  Data Marketplace subscription, which only covers the Live Departure
+  Board product, not a separate arrival-board one. `"MYB"` towards `"AMR"`
+  is a workable stand-in — the next trains leaving Marylebone that call at
+  Amersham — but its times are Marylebone's own departure times, not
+  Amersham's actual arrival times; the two differ by the journey length
+  (the Marylebone–Amersham run takes a while), which matters if this is
+  genuinely being used to time a pickup. `destination` on every row here
+  is forced to the `other` CRS code regardless of a service's own real
+  destination (a northbound service's real destination is wherever it
+  terminates beyond Amersham, e.g. Birmingham, not Marylebone) — it's
+  never actually shown (`Foxbus.Screens`' `show_destination?` is false for
+  Chiltern), only used by `multi_destination?` (see
+  `Foxbus.Screens.Layout`) to decide whether to drop the screen's title;
+  forcing it keeps that decision stable instead of depending on which
+  real destinations happen to be running that day. If either leg's fetch
+  fails, the other's result is still shown rather than failing the whole
+  poll (logged at warning either way); only both failing is a hard error.
 
   `lines` is accepted but unused — Amersham's main line has exactly one
   operator (Chiltern Railways), so there is nothing to filter by. Every
@@ -67,6 +73,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   """
 
   @behaviour Foxbus.Ports.Provider
+  require Logger
 
   alias Foxbus.Adapters.Sources.ChilternRailHttp
   alias Foxbus.Domain.Arrival
@@ -98,19 +105,57 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   defp fetch_one_way(origin, destination) do
     with {:ok, body} <- ChilternRailHttp.get_departure_board(origin, destination, @num_rows) do
       now = Foxbus.LondonTime.now()
-      {:ok, body |> parse_board(:departure) |> Enum.map(&to_arrival(&1, now))}
+      {:ok, body |> parse_board("dep") |> Enum.map(&to_arrival(&1, now))}
     end
   end
 
   defp fetch_both_ways(origin, other) do
-    with {:ok, dep_body} <- ChilternRailHttp.get_departure_board(origin, other, @num_rows),
-         {:ok, arr_body} <- ChilternRailHttp.get_arrival_board(origin, other, @num_rows) do
-      now = Foxbus.LondonTime.now()
-      departures = dep_body |> parse_board(:departure) |> Enum.map(&to_arrival(&1, now))
-      arrivals = arr_body |> parse_board(:arrival) |> Enum.map(&to_arrival(&1, now))
-      {:ok, Arrival.sort_by_eta(departures ++ arrivals)}
+    now = Foxbus.LondonTime.now()
+    dep = fetch_leg(origin, other, "dep", now)
+    arr = fetch_leg(other, origin, "arr", now)
+    combine_legs(dep, arr)
+  end
+
+  # Forces every row's destination to the queried `other` CRS code,
+  # regardless of a service's own real one — see the moduledoc on why that
+  # matters for `multi_destination?`.
+  defp fetch_leg(from, to, line, now) do
+    with {:ok, body} <- ChilternRailHttp.get_departure_board(from, to, @num_rows) do
+      arrivals =
+        body
+        |> parse_board(line)
+        |> Enum.map(&to_arrival(&1, now))
+        |> Enum.map(&%{&1 | destination: to})
+
+      {:ok, arrivals}
     end
   end
+
+  @doc false
+  # Either leg failing alone still shows the other, rather than failing the
+  # whole poll — only both failing is a hard error (the first leg's reason,
+  # arbitrarily; both are logged either way).
+  @spec combine_legs({:ok, [Arrival.t()]} | {:error, term}, {:ok, [Arrival.t()]} | {:error, term}) ::
+          {:ok, [Arrival.t()]} | {:error, term}
+  def combine_legs({:ok, dep}, {:ok, arr}), do: {:ok, Arrival.sort_by_eta(dep ++ arr)}
+
+  def combine_legs({:ok, dep}, {:error, reason}) do
+    Logger.warning(
+      "foxbus: Chiltern arrival leg failed, showing departures only: #{inspect(reason)}"
+    )
+
+    {:ok, dep}
+  end
+
+  def combine_legs({:error, reason}, {:ok, arr}) do
+    Logger.warning(
+      "foxbus: Chiltern departure leg failed, showing arrivals only: #{inspect(reason)}"
+    )
+
+    {:ok, arr}
+  end
+
+  def combine_legs({:error, _} = dep_error, {:error, _}), do: dep_error
 
   @doc false
   @spec parse_stop_id(String.t()) ::
@@ -130,35 +175,28 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
 
   @doc false
   # Each entry of the decoded body's `trainServices` parsed to its
-  # std/etd/destination/isCancelled (`:departure`, `line: "dep"`) or
-  # sta/eta/origin/isCancelled (`:arrival`, `line: "arr"`) — an entry
-  # missing its time or the other station's name is skipped rather than
-  # crashing the whole board.
-  @spec parse_board(map, :departure | :arrival) :: [map]
-  def parse_board(%{"trainServices" => services}, kind) when is_list(services) do
-    services |> Enum.map(&parse_service(&1, kind)) |> Enum.reject(&is_nil/1)
+  # std/etd/destination/isCancelled, labelled `line` (always "dep" or
+  # "arr" — both legs are GetDepartureBoard calls, just from different
+  # stations, see the moduledoc) — an entry missing its time or
+  # destination name is skipped rather than crashing the whole board.
+  @spec parse_board(map, String.t()) :: [map]
+  def parse_board(%{"trainServices" => services}, line) when is_list(services) do
+    services |> Enum.map(&parse_service(&1, line)) |> Enum.reject(&is_nil/1)
   end
 
-  def parse_board(_, _kind), do: []
+  def parse_board(_, _line), do: []
 
   @doc false
-  def parse_board(body), do: parse_board(body, :departure)
+  def parse_board(body), do: parse_board(body, "dep")
 
-  defp parse_service(%{"std" => std} = service, :departure) when is_binary(std) do
+  defp parse_service(%{"std" => std} = service, line) when is_binary(std) do
     case location_name(service["destination"]) do
       nil -> nil
-      destination -> build_event(service, std, service["etd"], destination, "dep")
+      destination -> build_event(service, std, service["etd"], destination, line)
     end
   end
 
-  defp parse_service(%{"sta" => sta} = service, :arrival) when is_binary(sta) do
-    case location_name(service["origin"]) do
-      nil -> nil
-      origin -> build_event(service, sta, service["eta"], origin, "arr")
-    end
-  end
-
-  defp parse_service(_, _kind), do: nil
+  defp parse_service(_, _line), do: nil
 
   defp build_event(service, scheduled, estimated, destination, line) do
     case parse_hhmm(scheduled) do

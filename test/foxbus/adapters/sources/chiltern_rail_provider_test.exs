@@ -132,41 +132,21 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
     end
   end
 
-  describe "parse_board/2 for an arrival board" do
-    defp arrival_service(fields) do
-      %{
-        "sta" => fields[:sta] || "10:05",
-        "eta" => fields[:eta] || "On time",
-        "operatorCode" => fields[:operator_code] || "CH",
-        "isCancelled" => Keyword.get(fields, :is_cancelled, false),
-        "origin" => [
-          %{"locationName" => fields[:origin] || "London Marylebone", "crs" => "MYB"}
+  describe "parse_board/2" do
+    test "labels every row with whatever line string it's given" do
+      body = board([service(std: "10:05")])
+      assert [s] = ChilternRailProvider.parse_board(body, "arr")
+      assert s.line == "arr"
+    end
+
+    test "a service missing its destination is skipped, not a crash" do
+      body = %{
+        "trainServices" => [
+          %{"std" => "10:05", "etd" => "On time", "isCancelled" => false, "destination" => []}
         ]
       }
-    end
 
-    test "reads sta, eta, origin, and cancelled from each service, labelling it \"arr\"" do
-      body = board([arrival_service(sta: "10:05", eta: "On time", origin: "London Marylebone")])
-
-      assert [s] = ChilternRailProvider.parse_board(body, :arrival)
-
-      assert s == %{
-               std: {10, 5},
-               etd: "On time",
-               destination: "London Marylebone",
-               line: "arr",
-               cancelled?: false
-             }
-    end
-
-    test "a departure-shaped service (no sta) is skipped under :arrival parsing" do
-      body = board([service(std: "10:05")])
-      assert ChilternRailProvider.parse_board(body, :arrival) == []
-    end
-
-    test "an arrival-shaped service (no std) is skipped under :departure parsing" do
-      body = board([arrival_service(sta: "10:05")])
-      assert ChilternRailProvider.parse_board(body, :departure) == []
+      assert ChilternRailProvider.parse_board(body, "dep") == []
     end
   end
 
@@ -227,6 +207,34 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
 
       a = ChilternRailProvider.to_arrival(event, @now)
       assert {a.status, a.cancelled?, a.delay_minutes} == {:scheduled, false, nil}
+    end
+  end
+
+  describe "combine_legs/2" do
+    defp leg_arrival(line, eta),
+      do: %Foxbus.Domain.Arrival{line: line, destination: "MYB", eta_minutes: eta, status: :live}
+
+    test "both legs succeeding merges and sorts by eta" do
+      dep = {:ok, [leg_arrival("dep", 20)]}
+      arr = {:ok, [leg_arrival("arr", 5)]}
+
+      assert {:ok, [a, b]} = ChilternRailProvider.combine_legs(dep, arr)
+      assert {a.line, b.line} == {"arr", "dep"}
+    end
+
+    test "the arrival leg failing still shows the departure leg" do
+      dep = {:ok, [leg_arrival("dep", 20)]}
+      assert ChilternRailProvider.combine_legs(dep, {:error, :boom}) == dep
+    end
+
+    test "the departure leg failing still shows the arrival leg" do
+      arr = {:ok, [leg_arrival("arr", 5)]}
+      assert ChilternRailProvider.combine_legs({:error, :boom}, arr) == arr
+    end
+
+    test "both legs failing is an error" do
+      assert ChilternRailProvider.combine_legs({:error, :boom}, {:error, :other}) ==
+               {:error, :boom}
     end
   end
 

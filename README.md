@@ -300,17 +300,22 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   code up at https://www.nationalrail.co.uk/stations/. Add a third
   `"both"` segment, e.g. `"AMR,MYB,both"`, to show both directions
   through the origin on one screen — the usual departures towards the
-  destination, merged with the reverse arrivals coming from it (e.g.
-  Amersham departures to Marylebone plus Amersham arrivals from
-  Marylebone, handy for picking someone up). Each row is labelled `"dep"`
-  or `"arr"` rather than the response's own operator code (there being
-  only one operator, Chiltern Railways, nothing to tell apart that way);
-  since both directions share the same two stations, the screen's own
-  configured title (e.g. `"Amersham Chiltern"`) keeps showing rather than
-  being replaced by a per-row destination. `lines` is accepted but
-  unused — nothing to filter by, for the same one-operator reason. No
-  disruption or stop-closure concept yet. At most 3 rows show on any one
-  screen, with a Chiltern Railways logo at the bottom. Needs a free
+  destination, plus a second departure board the other way round (e.g.
+  Amersham's departures to Marylebone, plus Marylebone's own departures
+  to Amersham). **Not an arrival board**: `GetArrivalBoard` 500s under
+  the Rail Data Marketplace's Live Departure Board subscription (it only
+  covers departures), so the reverse leg's times are Marylebone's own
+  departure times, not Amersham's actual arrival times — close but not
+  exact if timing an actual pickup. If either leg's fetch fails, the
+  other still shows rather than losing the whole screen. Each row is
+  labelled `"dep"` or `"arr"` rather than the response's own operator
+  code (there being only one operator, Chiltern Railways, nothing to
+  tell apart that way); the screen's own configured title (e.g.
+  `"Amersham Chiltern"`) keeps showing rather than being replaced by a
+  per-row destination. `lines` is accepted but unused — nothing to
+  filter by, for the same one-operator reason. No disruption or
+  stop-closure concept yet. At most 3 rows show on any one screen, with
+  a Chiltern Railways logo at the bottom. Needs a free
   Rail Data Marketplace account (register at https://raildata.org.uk,
   subscribe to "Live Departure Board"); the API key — labelled "Consumer
   key" on the product's own Specification tab, sent as a plain `x-apikey`
