@@ -114,7 +114,13 @@ defmodule Foxbus.Adapters.Schedulers.AdaptiveBusPoller do
       end
 
     Process.send_after(self(), :poll, next_delay(result, state.consecutive_failures))
-    {:noreply, state}
+    # :hibernate forces a full GC on return, freeing the garbage from this
+    # poll's fetch+parse (JSON/HTML body, Floki tree, regex matches) right
+    # away instead of leaving it to survive into the old generation until
+    # the next major GC — confirmed live via a device crash dump: each of
+    # these pollers was sitting on several hundred KB of old-heap garbage
+    # from exactly this (2026-11-03).
+    {:noreply, state, :hibernate}
   end
 
   @doc """

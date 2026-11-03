@@ -62,6 +62,9 @@ defmodule Foxbus.Adapters.Schedulers.DisruptionPoller do
 
     delay = if state.logged_first_success?, do: @interval_ms, else: @first_retry_ms
     Process.send_after(self(), :poll, delay)
-    {:noreply, state}
+    # :hibernate forces a full GC on return, freeing this poll's HTML/Floki
+    # garbage right away instead of leaving it to survive into the old
+    # generation until the next major GC -- see AdaptiveBusPoller.
+    {:noreply, state, :hibernate}
   end
 end
