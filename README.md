@@ -37,7 +37,7 @@ come back — this happens on every boot — rather than risk showing a
 scheduled, non-arriving bus time before knowing whether the stop is closed.
 
 A bus shows its line and when it's due: a countdown at 10 minutes or less
-("4 min"), otherwise the clock time ("at 15:22", or "Tomorrow 06:25" once the
+("4 min"), otherwise the clock time ("15:22", or "Tomorrow 06:25" once the
 board has rolled over to tomorrow's first services). Live buses are white,
 timetabled ones slightly dimmer. If a stop's board is simply empty, the screen
 says "No more buses today". If Carousel instead names that stop's exact ATCO
@@ -302,10 +302,15 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   through the origin on one screen — the usual departures towards the
   destination, merged with the reverse arrivals coming from it (e.g.
   Amersham departures to Marylebone plus Amersham arrivals from
-  Marylebone, handy for picking someone up). `lines` is
-  accepted but unused — every row's `line` is the response's own operator
-  code (`"CH"`). No disruption or stop-closure concept yet. At most 3
-  rows show on any one screen. Needs a free
+  Marylebone, handy for picking someone up). Each row is labelled `"dep"`
+  or `"arr"` rather than the response's own operator code (there being
+  only one operator, Chiltern Railways, nothing to tell apart that way);
+  since both directions share the same two stations, the screen's own
+  configured title (e.g. `"Amersham Chiltern"`) keeps showing rather than
+  being replaced by a per-row destination. `lines` is accepted but
+  unused — nothing to filter by, for the same one-operator reason. No
+  disruption or stop-closure concept yet. At most 3 rows show on any one
+  screen, with a Chiltern Railways logo at the bottom. Needs a free
   Rail Data Marketplace account (register at https://raildata.org.uk,
   subscribe to "Live Departure Board"); the API key — labelled "Consumer
   key" on the product's own Specification tab, sent as a plain `x-apikey`

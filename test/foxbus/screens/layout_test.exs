@@ -52,7 +52,7 @@ defmodule Foxbus.Screens.LayoutTest do
           arrival("1", 40, :scheduled, ~T[15:33:00])
         ])
 
-      assert texts(ops) == ["To Mapleton", "105  at 15:07", "1  at 15:33"]
+      assert texts(ops) == ["To Mapleton", "105  15:07", "1  15:33"]
       assert background(ops) == "#1C1C1E"
     end
 
@@ -289,6 +289,80 @@ defmodule Foxbus.Screens.LayoutTest do
     test "true (the default) keeps the line, unchanged" do
       ops = Layout.stop("To Mapleton", [arrival_to("105", 14, "Mapleton")])
       assert texts(ops) == ["To Mapleton", "105  14 min"]
+    end
+
+    test "true tells a bidirectional Chiltern screen's \"dep\" and \"arr\" rows apart" do
+      ops =
+        Layout.stop("Amersham Chiltern", [
+          arrival_to("dep", 14, "London Marylebone"),
+          arrival_to("arr", 20, "London Marylebone")
+        ])
+
+      assert texts(ops) == ["Amersham Chiltern", "dep  14 min", "arr  20 min"]
+    end
+  end
+
+  describe "show_logo?" do
+    defp logo_ops(ops), do: for({:logo, x, y} <- ops, do: {x, y})
+
+    test "false (the default) adds no logo" do
+      ops = Layout.stop("Amersham Chiltern", [arrival_to("dep", 14, "London Marylebone")])
+      assert logo_ops(ops) == []
+    end
+
+    test "true adds a logo op, with no more buses today too" do
+      ops =
+        Layout.stop(
+          "Amersham Chiltern",
+          [],
+          0,
+          :none,
+          nil,
+          false,
+          "#1C1C1E",
+          nil,
+          false,
+          true,
+          true
+        )
+
+      assert logo_ops(ops) == [{75, 256}]
+    end
+
+    test "true adds a logo op to a non-empty list screen, but not a countdown screen" do
+      list_ops =
+        Layout.stop(
+          "Amersham Chiltern",
+          [arrival_to("dep", 14, "London Marylebone")],
+          0,
+          :none,
+          nil,
+          false,
+          "#1C1C1E",
+          nil,
+          false,
+          true,
+          true
+        )
+
+      assert logo_ops(list_ops) == [{75, 256}]
+
+      countdown_ops =
+        Layout.stop(
+          "Amersham Chiltern",
+          [arrival_to("dep", 1, "London Marylebone")],
+          0,
+          :none,
+          nil,
+          false,
+          "#1C1C1E",
+          nil,
+          false,
+          true,
+          true
+        )
+
+      assert logo_ops(countdown_ops) == []
     end
   end
 

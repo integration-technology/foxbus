@@ -19,8 +19,8 @@ defmodule Foxbus.Domain.ArrivalTest do
     end
 
     test "shows the clock time beyond 10 minutes" do
-      assert Arrival.eta_text(arrival(11, ~T[15:22:00])) == "at 15:22"
-      assert Arrival.eta_text(arrival(90, ~T[09:05:00])) == "at 09:05"
+      assert Arrival.eta_text(arrival(11, ~T[15:22:00])) == "15:22"
+      assert Arrival.eta_text(arrival(90, ~T[09:05:00])) == "09:05"
     end
 
     test "falls back to minutes when there is no clock time" do

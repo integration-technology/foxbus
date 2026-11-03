@@ -28,17 +28,23 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   `Foxbus.Adapters.Sources.ChilternRailHttp.get_arrival_board/3`), sorted
   together by time — useful for, say, picking someone up at Amersham off a
   train that started at Marylebone, on the same screen that already shows
-  Amersham's own departures towards Marylebone. An arrival row's
-  `destination` is set to `"From <origin station>"` rather than the
-  service's own eventual destination (which may be past Amersham and so
-  wouldn't mean anything to a reader at Amersham) — this, combined with
-  departure rows keeping their real destination, is enough to make
-  `multi_destination?` (see `Foxbus.Screens.Layout`) show each row's own
-  label and tell the two directions apart without a new display concept.
+  Amersham's own departures towards Marylebone. `destination` is always the
+  real "other end" station name reported by whichever board the row came
+  from (a departure's actual destination, or an arrival's actual origin) —
+  for this one station pair they're normally identical ("London
+  Marylebone"), so `multi_destination?` (see `Foxbus.Screens.Layout`) stays
+  false and the screen's own configured title keeps showing. The two
+  directions are told apart instead by `line`, which this provider sets to
+  `"dep"` or `"arr"` rather than the response's own `operatorCode` — see
+  below.
 
   `lines` is accepted but unused — Amersham's main line has exactly one
-  operator (Chiltern Railways), so there is nothing to filter by; every
-  row's `line` is instead the response's own `operatorCode` ("CH").
+  operator (Chiltern Railways), so there is nothing to filter by. Every
+  row's `line` is `"dep"` or `"arr"` (not the response's own `operatorCode`,
+  e.g. `"CH"` — again, nothing to tell apart with only one operator),
+  meant to be shown (`Foxbus.Screens`' `show_line?`) so a reader can tell a
+  departure from an arrival; on a one-way (non-`"both"`) screen every row
+  is a `"dep"`, which is redundant but harmless.
 
   A cancelled service is kept, not dropped, same as
   `StagecoachProvider` — `cancelled?: true` (from the response's own
@@ -124,12 +130,10 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
 
   @doc false
   # Each entry of the decoded body's `trainServices` parsed to its
-  # std/etd/destination/operatorCode/isCancelled (`:departure`) or
-  # sta/eta/origin/operatorCode/isCancelled (`:arrival`, labelled "From
-  # <origin station>" so it reads as the reverse direction, not confused
-  # with a departure's real destination) — an entry missing its time or
-  # the other station's name is skipped rather than crashing the whole
-  # board.
+  # std/etd/destination/isCancelled (`:departure`, `line: "dep"`) or
+  # sta/eta/origin/isCancelled (`:arrival`, `line: "arr"`) — an entry
+  # missing its time or the other station's name is skipped rather than
+  # crashing the whole board.
   @spec parse_board(map, :departure | :arrival) :: [map]
   def parse_board(%{"trainServices" => services}, kind) when is_list(services) do
     services |> Enum.map(&parse_service(&1, kind)) |> Enum.reject(&is_nil/1)
@@ -143,27 +147,27 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   defp parse_service(%{"std" => std} = service, :departure) when is_binary(std) do
     case location_name(service["destination"]) do
       nil -> nil
-      destination -> build_event(service, std, service["etd"], destination)
+      destination -> build_event(service, std, service["etd"], destination, "dep")
     end
   end
 
   defp parse_service(%{"sta" => sta} = service, :arrival) when is_binary(sta) do
     case location_name(service["origin"]) do
       nil -> nil
-      origin -> build_event(service, sta, service["eta"], "From #{origin}")
+      origin -> build_event(service, sta, service["eta"], origin, "arr")
     end
   end
 
   defp parse_service(_, _kind), do: nil
 
-  defp build_event(service, scheduled, estimated, destination) do
+  defp build_event(service, scheduled, estimated, destination, line) do
     case parse_hhmm(scheduled) do
       {:ok, scheduled_hm} ->
         %{
           std: scheduled_hm,
           etd: estimated || "On time",
           destination: destination,
-          operator_code: service["operatorCode"] || "CH",
+          line: line,
           cancelled?: service["isCancelled"] == true
         }
 
@@ -183,7 +187,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
           std: {std_hour, std_minute},
           etd: etd,
           destination: destination,
-          operator_code: line,
+          line: line,
           cancelled?: cancelled?
         },
         now

@@ -119,6 +119,13 @@ defmodule Foxbus.Screens do
     dir = Application.fetch_env!(:foxbus, :assets_dir)
     background = Image.from_raw(320, 320, File.read!(Path.join(dir, "screen.raw")))
 
+    chiltern_logo =
+      Image.from_raw(
+        170,
+        30,
+        File.read!(Application.app_dir(:foxbus, ["priv", "chiltern_logo.raw"]))
+      )
+
     NestGen2.Dial.set_step(Application.fetch_env!(:foxbus, :screen_step_degrees))
     NestGen2.subscribe([:dial_step, :dial, :climate, :button, :power])
     schedule_tick()
@@ -142,6 +149,7 @@ defmodule Foxbus.Screens do
       show_destinations:
         Map.new(stops, fn stop -> {stop.key, show_destination?(stop.provider)} end),
       show_lines: Map.new(stops, fn stop -> {stop.key, show_line?(stop.provider)} end),
+      show_logos: Map.new(stops, fn stop -> {stop.key, show_logo?(stop.provider)} end),
       index: default_index,
       arrivals: %{},
       fetched_at: %{},
@@ -151,6 +159,7 @@ defmodule Foxbus.Screens do
       closures: closures_without_poller(stops),
       temperature: nil,
       background: background,
+      chiltern_logo: chiltern_logo,
       icons: Application.app_dir(:foxbus, ["priv", "MaterialIcons-Regular.ttf"]),
       shown: nil,
       chirping: nil,
@@ -185,13 +194,17 @@ defmodule Foxbus.Screens do
   defp show_destination?(:tfl), do: true
   defp show_destination?(_provider), do: false
 
-  # Chiltern's stop_id already filters to one destination (see
-  # ChilternRailProvider's moduledoc), so every row's own line is always
-  # the same single operator code ("CH") the title already implies —
-  # Owain's call, dropping it as pure noise rather than showing it
-  # redundantly on every row and on the countdown screen.
-  defp show_line?(:chiltern_rail), do: false
+  # ChilternRailProvider sets `line` to "dep"/"arr" rather than an operator
+  # code, so showing it tells a departure from an arrival on a bidirectional
+  # ("...,both") screen — on a one-way screen every row reads "dep", which
+  # is redundant but harmless, see that module's moduledoc.
   defp show_line?(_provider), do: true
+
+  # A white band with the Chiltern Railways logo at the bottom of every
+  # Chiltern screen — Owain's request, a real-world brand touch the other
+  # providers don't have. See Layout.stop/11's moduledoc.
+  defp show_logo?(:chiltern_rail), do: true
+  defp show_logo?(_provider), do: false
 
   defp closures_without_poller(stops) do
     stops
@@ -797,7 +810,8 @@ defmodule Foxbus.Screens do
                 state.backgrounds[stop],
                 state.stop_names[stop],
                 state.show_destinations[stop],
-                state.show_lines[stop]
+                state.show_lines[stop],
+                state.show_logos[stop]
               )
 
             {:ok, nil} ->
@@ -811,7 +825,8 @@ defmodule Foxbus.Screens do
                 state.backgrounds[stop],
                 state.stop_names[stop],
                 state.show_destinations[stop],
-                state.show_lines[stop]
+                state.show_lines[stop],
+                state.show_logos[stop]
               )
 
             {:ok, explanation} ->
@@ -828,6 +843,8 @@ defmodule Foxbus.Screens do
   defp draw({:background, color}, _state), do: Display.set_background(color)
 
   defp draw({:rect, x, y, w, h, color}, _state), do: Display.fill_rect(x, y, w, h, color)
+
+  defp draw({:logo, x, y}, state), do: Display.put_image(x, y, state.chiltern_logo)
 
   defp draw({:text, x, y, text, opts}, state) do
     opts = if opts[:font] == :icons, do: Keyword.put(opts, :font, state.icons), else: opts

@@ -72,7 +72,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
                std: {16, 8},
                etd: "On time",
                destination: "London Marylebone",
-               operator_code: "CH",
+               line: "dep",
                cancelled?: false
              }
     end
@@ -97,7 +97,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
   end
 
   describe "parse_board/1" do
-    test "reads std, etd, destination, operator code, and cancelled from each service" do
+    test "reads std, etd, destination, and cancelled from each service, labelling it \"dep\"" do
       body = board([service(std: "10:05", etd: "On time", destination: "London Marylebone")])
 
       assert [s] = ChilternRailProvider.parse_board(body)
@@ -106,7 +106,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
                std: {10, 5},
                etd: "On time",
                destination: "London Marylebone",
-               operator_code: "CH",
+               line: "dep",
                cancelled?: false
              }
     end
@@ -145,8 +145,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
       }
     end
 
-    test "reads sta, eta, origin, operator code, and cancelled from each service, " <>
-           "labelling the destination as \"From <origin>\"" do
+    test "reads sta, eta, origin, and cancelled from each service, labelling it \"arr\"" do
       body = board([arrival_service(sta: "10:05", eta: "On time", origin: "London Marylebone")])
 
       assert [s] = ChilternRailProvider.parse_board(body, :arrival)
@@ -154,8 +153,8 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
       assert s == %{
                std: {10, 5},
                etd: "On time",
-               destination: "From London Marylebone",
-               operator_code: "CH",
+               destination: "London Marylebone",
+               line: "arr",
                cancelled?: false
              }
     end
@@ -177,14 +176,14 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
         std: {10, 35},
         etd: "On time",
         destination: "London Marylebone",
-        operator_code: "CH",
+        line: "dep",
         cancelled?: false
       }
 
       a = ChilternRailProvider.to_arrival(event, @now)
 
       assert {a.line, a.destination, a.status, a.delay_minutes, a.cancelled?} ==
-               {"CH", "London Marylebone", :live, 0, false}
+               {"dep", "London Marylebone", :live, 0, false}
 
       assert {a.scheduled_time, a.eta_minutes} == {~T[10:35:00], 35}
     end
@@ -194,7 +193,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
         std: {10, 35},
         etd: "10:42",
         destination: "London Marylebone",
-        operator_code: "CH",
+        line: "dep",
         cancelled?: false
       }
 
@@ -207,7 +206,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
         std: {11, 5},
         etd: "Cancelled",
         destination: "London Marylebone",
-        operator_code: "CH",
+        line: "dep",
         cancelled?: true
       }
 
@@ -222,7 +221,7 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
         std: {10, 35},
         etd: "Delayed",
         destination: "London Marylebone",
-        operator_code: "CH",
+        line: "dep",
         cancelled?: false
       }
 

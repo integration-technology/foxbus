@@ -247,7 +247,7 @@ defmodule Foxbus.Screens.Layout do
   few trains happened to share one destination, `multi_destination?`
   alone was false, so the row fell back to repeating the line name three
   times with no destination shown at all — not wrong, just useless, since
-  "Metropolitan at 16:44" says nothing "Amersham" (the title) and navy
+  "Metropolitan 16:44" says nothing "Amersham" (the title) and navy
   (the colour) hadn't already said. `show_destination?` makes that
   decision explicit instead of inferring it from whether this particular
   poll's few departures happen to vary — unlike a Carousel stop, where
@@ -261,6 +261,18 @@ defmodule Foxbus.Screens.Layout do
   destination would just repeat the title and every row's line would just
   repeat the operator code, so neither is worth a rider's eye; the time
   alone is. Set per provider (see `Foxbus.Screens`), not per stop.
+
+  `show_logo?` (default false) adds a white band with an operator's logo
+  near the bottom (170×30, at (75, 256)) — Chiltern's, currently the only
+  one (see `Foxbus.Screens`). List mode only (not the soon/arriving
+  countdown screens, whose orange/green urgency colour matters more than
+  branding there) — resolved to an actual image by `Foxbus.Screens`' own
+  `draw/2`, since this module stays pure and can't embed binary image
+  data. Placed clear of every row (3 rows end well above y=256) and sized
+  to stay inside the round display's visible circle even at its bottom
+  edge; untested against a real disruption notice there (Chiltern has
+  none yet — `disruptions?/0` is false — so `warning_line/2`'s own y=264
+  text has never actually shared this screen with it).
   """
   @spec stop(
           String.t(),
@@ -271,6 +283,7 @@ defmodule Foxbus.Screens.Layout do
           boolean,
           String.t(),
           String.t() | nil,
+          boolean,
           boolean,
           boolean
         ) :: list
@@ -284,7 +297,8 @@ defmodule Foxbus.Screens.Layout do
         background \\ @dark,
         stop_name \\ nil,
         show_destination? \\ false,
-        show_line? \\ true
+        show_line? \\ true,
+        show_logo? \\ false
       ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
@@ -292,7 +306,7 @@ defmodule Foxbus.Screens.Layout do
           {:background, background},
           {:text, 160, 54, title, text_opts(24, @white, background)},
           {:text, 160, 140, "No more buses today", text_opts(22, @dim, background)}
-        ] ++ warning_line(disruption, background)
+        ] ++ warning_line(disruption, background) ++ logo(show_logo?)
 
       :list ->
         # The configured title ("To Riverside") names one direction; when the
@@ -325,7 +339,7 @@ defmodule Foxbus.Screens.Layout do
 
         [{:background, background} | title_line] ++
           body(arrivals, background, show_destination?, stop_name, show_line?) ++
-          warning_line(disruption, background)
+          warning_line(disruption, background) ++ logo(show_logo?)
 
       {:soon, m} ->
         countdown(title, next_due(arrivals), m, @orange, bell, false, show_line?) ++
@@ -422,6 +436,11 @@ defmodule Foxbus.Screens.Layout do
   defp warning_line(explanation, color),
     do: [{:text, 160, 264, truncate(explanation, 16), text_opts(18, @white, color)}]
 
+  @logo_x 75
+  @logo_y 256
+  defp logo(false), do: []
+  defp logo(true), do: [{:logo, @logo_x, @logo_y}]
+
   @doc "Cuts text to at most `max_chars`, with an ellipsis if it was longer."
   @spec truncate(String.t(), pos_integer) :: String.t()
   def truncate(text, max_chars) do
@@ -480,8 +499,8 @@ defmodule Foxbus.Screens.Layout do
   # chars) showed @row_size running off both edges of the round screen —
   # there's no font-metrics API on this device to measure text width, so
   # this is a conservative character-count guess, not a measured one: a
-  # short "line  eta" combo ("34  at 15:22", 12 chars) was never reported
-  # as cut off, "Tomorrow HH:MM"'s extra length was, so the cutoff sits
+  # short "line  eta" combo ("34  15:22", 9 chars) was never reported as
+  # cut off, "Tomorrow HH:MM"'s extra length was, so the cutoff sits
   # between the two. Expect another pass once there's a capture of this
   # smaller size to confirm it actually fits.
   @row_max_chars 14

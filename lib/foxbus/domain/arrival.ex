@@ -42,7 +42,7 @@ defmodule Foxbus.Domain.Arrival do
   once it is close enough that a minute matters (10 minutes or less),
   otherwise the clock time to look for — marked "Tomorrow" when the board
   has rolled over to the next day's first services, so a late-night
-  "at 06:25" doesn't read as tonight.
+  "06:25" doesn't read as tonight.
   """
   @spec eta_text(t) :: String.t()
   def eta_text(%__MODULE__{cancelled?: true}), do: "Cancelled"
@@ -50,7 +50,7 @@ defmodule Foxbus.Domain.Arrival do
   def eta_text(%__MODULE__{scheduled_time: nil, eta_minutes: m}), do: "#{m} min"
 
   def eta_text(%__MODULE__{scheduled_time: %Time{} = t, day: day}) do
-    prefix = if day == :tomorrow, do: "Tomorrow ", else: "at "
+    prefix = if day == :tomorrow, do: "Tomorrow ", else: ""
     prefix <> (t |> Time.to_string() |> String.slice(0, 5))
   end
 end
