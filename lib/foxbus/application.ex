@@ -39,7 +39,12 @@ defmodule Foxbus.Application do
       |> Enum.with_index()
       |> Enum.map(fn {spec, index} -> child_spec(spec, index * @stagger_step_ms) end)
 
-    children = [Foxbus.Screens | pollers]
+    carousel_cache =
+      if Enum.any?(stops, fn {stop, _provider} -> stop.provider == :carousel end),
+        do: [Foxbus.Adapters.Sources.CarouselCache],
+        else: []
+
+    children = carousel_cache ++ [Foxbus.Screens | pollers]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Foxbus.Supervisor)
   end

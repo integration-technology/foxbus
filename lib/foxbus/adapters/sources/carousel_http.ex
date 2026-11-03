@@ -3,10 +3,19 @@ defmodule Foxbus.Adapters.Sources.CarouselHttp do
   Shared HTTPS GET for carouselbuses.co.uk. The Nest has no general CA store
   (only one Nest certificate), so every request here is verified against the
   bundled Mozilla set (priv/cacerts.pem, from curl.se, MPL-2.0) instead.
+
+  Goes through `Foxbus.Adapters.Sources.CarouselCache` so that a URL fetched
+  again shortly after — chiefly `/service-updates`, read independently by
+  every stop's own closure and disruption poller — reuses the first answer
+  instead of refetching; see that module's moduledoc.
   """
 
+  alias Foxbus.Adapters.Sources.CarouselCache
+
   @spec get(String.t()) :: {:ok, {[{charlist, charlist}], binary}} | {:error, term}
-  def get(url) do
+  def get(url), do: CarouselCache.fetch(url, fn -> do_get(url) end)
+
+  defp do_get(url) do
     http_opts = [ssl: ssl_opts(), timeout: 15_000, connect_timeout: 10_000]
     request = {String.to_charlist(url), [{~c"user-agent", ~c"foxbus"}]}
 
