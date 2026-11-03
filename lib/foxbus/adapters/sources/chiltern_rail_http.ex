@@ -41,10 +41,27 @@ defmodule Foxbus.Adapters.Sources.ChilternRailHttp do
 
   @spec get_departure_board(String.t(), String.t(), non_neg_integer) ::
           {:ok, map} | {:error, term}
-  def get_departure_board(crs, filter_crs, num_rows \\ 10) do
+  def get_departure_board(crs, filter_crs, num_rows \\ 10),
+    do: get_board("GetDepartureBoard", crs, filter_crs, "to", num_rows)
+
+  @doc """
+  Same board, the other direction: services *arriving* at `crs` that came
+  *from* `filter_crs` — `sta`/`eta`/`origin` in the response instead of
+  `std`/`etd`/`destination` (see
+  `Foxbus.Adapters.Sources.ChilternRailProvider`'s `:arrival` parsing).
+  Lets a screen show both directions through one station, e.g. picking
+  someone up off a train that started at the destination station shown on
+  the departure board.
+  """
+  @spec get_arrival_board(String.t(), String.t(), non_neg_integer) ::
+          {:ok, map} | {:error, term}
+  def get_arrival_board(crs, filter_crs, num_rows \\ 10),
+    do: get_board("GetArrivalBoard", crs, filter_crs, "from", num_rows)
+
+  defp get_board(endpoint, crs, filter_crs, filter_type, num_rows) do
     with {:ok, api_key} <- fetch_credentials() do
       url =
-        "#{@base_url}/GetDepartureBoard/#{crs}?numRows=#{num_rows}&filterCrs=#{filter_crs}&filterType=to"
+        "#{@base_url}/#{endpoint}/#{crs}?numRows=#{num_rows}&filterCrs=#{filter_crs}&filterType=#{filter_type}"
 
       headers = [{~c"x-apikey", String.to_charlist(api_key)}]
       http_opts = [ssl: ssl_opts(), timeout: 15_000, connect_timeout: 10_000]

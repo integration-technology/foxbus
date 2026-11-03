@@ -21,6 +21,21 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
   station codes (Amersham `AMR`, Marylebone `MYB`) — look one up at
   https://www.nationalrail.co.uk/stations/ or in the OpenLDBWS docs.
 
+  **A third, optional segment, `"AMR,MYB,both"`, shows both directions
+  through the origin on one screen**: the usual departure board
+  (`"AMR"` towards `"MYB"`) merged with the reverse arrival board
+  (services arriving at `"AMR"` that came from `"MYB"`, via
+  `Foxbus.Adapters.Sources.ChilternRailHttp.get_arrival_board/3`), sorted
+  together by time — useful for, say, picking someone up at Amersham off a
+  train that started at Marylebone, on the same screen that already shows
+  Amersham's own departures towards Marylebone. An arrival row's
+  `destination` is set to `"From <origin station>"` rather than the
+  service's own eventual destination (which may be past Amersham and so
+  wouldn't mean anything to a reader at Amersham) — this, combined with
+  departure rows keeping their real destination, is enough to make
+  `multi_destination?` (see `Foxbus.Screens.Layout`) show each row's own
+  label and tell the two directions apart without a new display concept.
+
   `lines` is accepted but unused — Amersham's main line has exactly one
   operator (Chiltern Railways), so there is nothing to filter by; every
   row's `line` is instead the response's own `operatorCode` ("CH").
@@ -66,19 +81,41 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
 
   @impl true
   def fetch_arrivals(stop_id, _lines) do
-    with {:ok, {origin, destination}} <- parse_stop_id(stop_id),
-         {:ok, body} <- ChilternRailHttp.get_departure_board(origin, destination, @num_rows) do
+    with {:ok, parsed} <- parse_stop_id(stop_id) do
+      case parsed do
+        {origin, destination, :one_way} -> fetch_one_way(origin, destination)
+        {origin, destination, :both_ways} -> fetch_both_ways(origin, destination)
+      end
+    end
+  end
+
+  defp fetch_one_way(origin, destination) do
+    with {:ok, body} <- ChilternRailHttp.get_departure_board(origin, destination, @num_rows) do
       now = Foxbus.LondonTime.now()
-      {:ok, body |> parse_board() |> Enum.map(&to_arrival(&1, now))}
+      {:ok, body |> parse_board(:departure) |> Enum.map(&to_arrival(&1, now))}
+    end
+  end
+
+  defp fetch_both_ways(origin, other) do
+    with {:ok, dep_body} <- ChilternRailHttp.get_departure_board(origin, other, @num_rows),
+         {:ok, arr_body} <- ChilternRailHttp.get_arrival_board(origin, other, @num_rows) do
+      now = Foxbus.LondonTime.now()
+      departures = dep_body |> parse_board(:departure) |> Enum.map(&to_arrival(&1, now))
+      arrivals = arr_body |> parse_board(:arrival) |> Enum.map(&to_arrival(&1, now))
+      {:ok, Arrival.sort_by_eta(departures ++ arrivals)}
     end
   end
 
   @doc false
-  @spec parse_stop_id(String.t()) :: {:ok, {String.t(), String.t()}} | {:error, :invalid_stop_id}
+  @spec parse_stop_id(String.t()) ::
+          {:ok, {String.t(), String.t(), :one_way | :both_ways}} | {:error, :invalid_stop_id}
   def parse_stop_id(stop_id) do
-    case String.split(stop_id, ",", parts: 2) do
+    case String.split(stop_id, ",", parts: 3) do
       [origin, destination] when origin != "" and destination != "" ->
-        {:ok, {origin, destination}}
+        {:ok, {origin, destination, :one_way}}
+
+      [origin, destination, "both"] when origin != "" and destination != "" ->
+        {:ok, {origin, destination, :both_ways}}
 
       _ ->
         {:error, :invalid_stop_id}
@@ -87,34 +124,56 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProvider do
 
   @doc false
   # Each entry of the decoded body's `trainServices` parsed to its
-  # std/etd/destination/operatorCode/isCancelled — an entry missing std or
-  # a destination name is skipped rather than crashing the whole board.
-  @spec parse_board(map) :: [map]
-  def parse_board(%{"trainServices" => services}) when is_list(services) do
-    services |> Enum.map(&parse_service/1) |> Enum.reject(&is_nil/1)
+  # std/etd/destination/operatorCode/isCancelled (`:departure`) or
+  # sta/eta/origin/operatorCode/isCancelled (`:arrival`, labelled "From
+  # <origin station>" so it reads as the reverse direction, not confused
+  # with a departure's real destination) — an entry missing its time or
+  # the other station's name is skipped rather than crashing the whole
+  # board.
+  @spec parse_board(map, :departure | :arrival) :: [map]
+  def parse_board(%{"trainServices" => services}, kind) when is_list(services) do
+    services |> Enum.map(&parse_service(&1, kind)) |> Enum.reject(&is_nil/1)
   end
 
-  def parse_board(_), do: []
+  def parse_board(_, _kind), do: []
 
-  defp parse_service(%{"std" => std} = service) when is_binary(std) do
-    with {:ok, std_hm} <- parse_hhmm(std),
-         destination when not is_nil(destination) <- destination_name(service) do
-      %{
-        std: std_hm,
-        etd: service["etd"] || "On time",
-        destination: destination,
-        operator_code: service["operatorCode"] || "CH",
-        cancelled?: service["isCancelled"] == true
-      }
-    else
-      _ -> nil
+  @doc false
+  def parse_board(body), do: parse_board(body, :departure)
+
+  defp parse_service(%{"std" => std} = service, :departure) when is_binary(std) do
+    case location_name(service["destination"]) do
+      nil -> nil
+      destination -> build_event(service, std, service["etd"], destination)
     end
   end
 
-  defp parse_service(_), do: nil
+  defp parse_service(%{"sta" => sta} = service, :arrival) when is_binary(sta) do
+    case location_name(service["origin"]) do
+      nil -> nil
+      origin -> build_event(service, sta, service["eta"], "From #{origin}")
+    end
+  end
 
-  defp destination_name(%{"destination" => [%{"locationName" => name} | _]}), do: name
-  defp destination_name(_), do: nil
+  defp parse_service(_, _kind), do: nil
+
+  defp build_event(service, scheduled, estimated, destination) do
+    case parse_hhmm(scheduled) do
+      {:ok, scheduled_hm} ->
+        %{
+          std: scheduled_hm,
+          etd: estimated || "On time",
+          destination: destination,
+          operator_code: service["operatorCode"] || "CH",
+          cancelled?: service["isCancelled"] == true
+        }
+
+      :error ->
+        nil
+    end
+  end
+
+  defp location_name([%{"locationName" => name} | _]), do: name
+  defp location_name(_), do: nil
 
   @doc false
   # `now` is UK local time; passed in so parsing is testable.

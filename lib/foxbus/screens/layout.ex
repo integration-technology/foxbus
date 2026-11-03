@@ -59,7 +59,7 @@ defmodule Foxbus.Screens.Layout do
   @tfl_navy "#0019A8"
   @soon_minutes 10
   @arriving_minutes 5
-  @max_rows 4
+  @max_rows 3
   @row_y 96
   @row_gap 40
   @multi_dest_max_rows 3

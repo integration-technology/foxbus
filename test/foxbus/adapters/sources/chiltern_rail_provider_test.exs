@@ -79,14 +79,20 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
   end
 
   describe "parse_stop_id/1" do
-    test "splits the origin and destination CRS codes" do
-      assert ChilternRailProvider.parse_stop_id("AMR,MYB") == {:ok, {"AMR", "MYB"}}
+    test "splits the origin and destination CRS codes, defaulting to one direction" do
+      assert ChilternRailProvider.parse_stop_id("AMR,MYB") == {:ok, {"AMR", "MYB", :one_way}}
+    end
+
+    test "a trailing \"both\" segment asks for both directions" do
+      assert ChilternRailProvider.parse_stop_id("AMR,MYB,both") ==
+               {:ok, {"AMR", "MYB", :both_ways}}
     end
 
     test "a malformed stop_id is an error, not a crash" do
       assert ChilternRailProvider.parse_stop_id("AMR") == {:error, :invalid_stop_id}
       assert ChilternRailProvider.parse_stop_id(",MYB") == {:error, :invalid_stop_id}
       assert ChilternRailProvider.parse_stop_id("AMR,") == {:error, :invalid_stop_id}
+      assert ChilternRailProvider.parse_stop_id("AMR,MYB,sideways") == {:error, :invalid_stop_id}
     end
   end
 
@@ -123,6 +129,45 @@ defmodule Foxbus.Adapters.Sources.ChilternRailProviderTest do
 
     test "a response missing trainServices entirely parses to an empty list" do
       assert ChilternRailProvider.parse_board(%{"locationName" => "Amersham"}) == []
+    end
+  end
+
+  describe "parse_board/2 for an arrival board" do
+    defp arrival_service(fields) do
+      %{
+        "sta" => fields[:sta] || "10:05",
+        "eta" => fields[:eta] || "On time",
+        "operatorCode" => fields[:operator_code] || "CH",
+        "isCancelled" => Keyword.get(fields, :is_cancelled, false),
+        "origin" => [
+          %{"locationName" => fields[:origin] || "London Marylebone", "crs" => "MYB"}
+        ]
+      }
+    end
+
+    test "reads sta, eta, origin, operator code, and cancelled from each service, " <>
+           "labelling the destination as \"From <origin>\"" do
+      body = board([arrival_service(sta: "10:05", eta: "On time", origin: "London Marylebone")])
+
+      assert [s] = ChilternRailProvider.parse_board(body, :arrival)
+
+      assert s == %{
+               std: {10, 5},
+               etd: "On time",
+               destination: "From London Marylebone",
+               operator_code: "CH",
+               cancelled?: false
+             }
+    end
+
+    test "a departure-shaped service (no sta) is skipped under :arrival parsing" do
+      body = board([service(std: "10:05")])
+      assert ChilternRailProvider.parse_board(body, :arrival) == []
+    end
+
+    test "an arrival-shaped service (no std) is skipped under :departure parsing" do
+      body = board([arrival_service(sta: "10:05")])
+      assert ChilternRailProvider.parse_board(body, :departure) == []
     end
   end
 

@@ -297,9 +297,15 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   three-letter station codes), e.g. `"AMR,MYB"` for Amersham towards
   Marylebone — a destination is needed, not just an origin, so OpenLDBWS
   can filter to services actually heading that way; look a station's CRS
-  code up at https://www.nationalrail.co.uk/stations/. `lines` is
+  code up at https://www.nationalrail.co.uk/stations/. Add a third
+  `"both"` segment, e.g. `"AMR,MYB,both"`, to show both directions
+  through the origin on one screen — the usual departures towards the
+  destination, merged with the reverse arrivals coming from it (e.g.
+  Amersham departures to Marylebone plus Amersham arrivals from
+  Marylebone, handy for picking someone up). `lines` is
   accepted but unused — every row's `line` is the response's own operator
-  code (`"CH"`). No disruption or stop-closure concept yet. Needs a free
+  code (`"CH"`). No disruption or stop-closure concept yet. At most 3
+  rows show on any one screen. Needs a free
   Rail Data Marketplace account (register at https://raildata.org.uk,
   subscribe to "Live Departure Board"); the API key — labelled "Consumer
   key" on the product's own Specification tab, sent as a plain `x-apikey`

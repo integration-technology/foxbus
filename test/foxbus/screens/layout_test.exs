@@ -56,9 +56,9 @@ defmodule Foxbus.Screens.LayoutTest do
       assert background(ops) == "#1C1C1E"
     end
 
-    test "shows at most four buses" do
+    test "shows at most three buses" do
       buses = for m <- 11..16, do: arrival("105", m)
-      assert length(texts(Layout.stop("To Mapleton", buses))) == 1 + 4
+      assert length(texts(Layout.stop("To Mapleton", buses))) == 1 + 3
     end
 
     test "live buses are white, scheduled ones dimmer" do
