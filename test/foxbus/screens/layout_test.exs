@@ -321,6 +321,14 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
+  describe "logo_size/0" do
+    test "matches the actual priv/chiltern_logo.raw asset's byte size" do
+      {w, h} = Layout.logo_size()
+      data = File.read!(Path.join([__DIR__, "..", "..", "..", "priv", "chiltern_logo.raw"]))
+      assert byte_size(data) == w * h * 4
+    end
+  end
+
   describe "show_logo?" do
     defp logo_ops(ops), do: for({:logo, x, y} <- ops, do: {x, y})
 

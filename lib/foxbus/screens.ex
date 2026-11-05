@@ -119,10 +119,12 @@ defmodule Foxbus.Screens do
     dir = Application.fetch_env!(:foxbus, :assets_dir)
     background = Image.from_raw(320, 320, File.read!(Path.join(dir, "screen.raw")))
 
+    {logo_w, logo_h} = Layout.logo_size()
+
     chiltern_logo =
       Image.from_raw(
-        170,
-        30,
+        logo_w,
+        logo_h,
         File.read!(Application.app_dir(:foxbus, ["priv", "chiltern_logo.raw"]))
       )
 

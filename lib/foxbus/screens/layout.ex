@@ -464,8 +464,21 @@ defmodule Foxbus.Screens.Layout do
 
   @logo_x 50
   @logo_y 231
+  @logo_width 220
+  @logo_height 40
   defp logo(false), do: []
   defp logo(true), do: [{:logo, @logo_x, @logo_y}]
+
+  @doc """
+  The Chiltern logo asset's own pixel dimensions — the single source of
+  truth for `priv/chiltern_logo.raw`'s size, so `Foxbus.Screens.init/1`
+  (which loads it via `NestGen2.Image.from_raw/3`) can read them from here
+  instead of duplicating the numbers: a mismatch between this and the
+  actual asset crashed the app at boot (`FunctionClauseError`) the one
+  time the two drifted.
+  """
+  @spec logo_size :: {pos_integer, pos_integer}
+  def logo_size, do: {@logo_width, @logo_height}
 
   @doc "Cuts text to at most `max_chars`, with an ellipsis if it was longer."
   @spec truncate(String.t(), pos_integer) :: String.t()
