@@ -152,6 +152,8 @@ defmodule Foxbus.Screens do
         Map.new(stops, fn stop -> {stop.key, show_destination?(stop.provider)} end),
       show_lines: Map.new(stops, fn stop -> {stop.key, show_line?(stop.provider)} end),
       show_logos: Map.new(stops, fn stop -> {stop.key, show_logo?(stop.provider)} end),
+      inline_destinations:
+        Map.new(stops, fn stop -> {stop.key, inline_destination?(stop.provider)} end),
       index: default_index,
       arrivals: %{},
       fetched_at: %{},
@@ -209,6 +211,15 @@ defmodule Foxbus.Screens do
   # providers don't have. See Layout.stop/11's moduledoc.
   defp show_logo?(:chiltern_rail), do: true
   defp show_logo?(_provider), do: false
+
+  # Chiltern's bidirectional ("...,both") screen forces each row's own
+  # destination to the queried CRS code (see ChilternRailProvider's
+  # moduledoc) specifically so it can be shown inline here, same size as
+  # every other row — the title ("Amersham Chiltern") stays fixed
+  # regardless. On a one-way screen every row's destination is the same
+  # code, which is redundant but harmless, same reasoning as show_line?.
+  defp inline_destination?(:chiltern_rail), do: true
+  defp inline_destination?(_provider), do: false
 
   defp closures_without_poller(stops) do
     stops
@@ -815,7 +826,8 @@ defmodule Foxbus.Screens do
                 state.stop_names[stop],
                 state.show_destinations[stop],
                 state.show_lines[stop],
-                state.show_logos[stop]
+                state.show_logos[stop],
+                state.inline_destinations[stop]
               )
 
             {:ok, nil} ->
@@ -830,7 +842,8 @@ defmodule Foxbus.Screens do
                 state.stop_names[stop],
                 state.show_destinations[stop],
                 state.show_lines[stop],
-                state.show_logos[stop]
+                state.show_logos[stop],
+                state.inline_destinations[stop]
               )
 
             {:ok, explanation} ->

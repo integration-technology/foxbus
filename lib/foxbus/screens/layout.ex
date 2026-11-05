@@ -279,18 +279,18 @@ defmodule Foxbus.Screens.Layout do
   alone is. Set per provider (see `Foxbus.Screens`), not per stop.
 
   `show_logo?` (default false) adds an operator's logo, centred, near the
-  bottom (220×40, at (50, 231)) — Chiltern's, currently the only one (see
+  bottom (200×36, at (60, 240)) — Chiltern's, currently the only one (see
   `Foxbus.Screens`). List mode only (not the soon/arriving countdown
   screens, whose orange/green urgency colour matters more than branding
   there) — resolved to an actual image by `Foxbus.Screens`' own `draw/2`,
   since this module stays pure and can't embed binary image data. Placed
-  clear of every row (3 rows end well above y=231) and sized to stay
-  inside the round display's visible circle even at its bottom edge
-  (chord-width check: at y=270, the circle's half-width is ~116px, comfortably
-  over the logo's own 110px half-width); untested against a real
-  disruption notice there (Chiltern has none yet — `disruptions?/0` is
-  false — so `warning_line/2`'s own y=264 text has never actually shared
-  this screen with it).
+  clear of every row (3 single-line rows end well above y=240) and sized
+  to stay inside the round display's visible circle even at its bottom
+  edge (chord-width check: at y=276, the circle's half-width is ~125px,
+  comfortably over the logo's own 100px half-width); untested against a
+  real disruption notice there (Chiltern has none yet — `disruptions?/0`
+  is false — so `warning_line/2`'s own y=264 text has never actually
+  shared this screen with it).
 
   A provider with `show_logo?` true is expected to pass `Layout.white/0`
   as `background` (Chiltern does, see `Foxbus.Screens`) — the logo's own
@@ -299,6 +299,17 @@ defmodule Foxbus.Screens.Layout do
   and `fg_dim/1` switch every list-mode text colour to dark on a white
   background so text stays legible — every other provider's dark/navy
   background is unaffected.
+
+  `inline_destination?` (default false) is for a screen whose rows don't
+  share one destination (Chiltern's bidirectional "both" screen, see
+  `Foxbus.Adapters.Sources.ChilternRailProvider`) but where the title is
+  still a fixed place name, not a direction — like `show_destination?`,
+  the title always stays. Unlike `show_destination?` (a second line below
+  each row, TfL's shape), each row here is one line, same size as every
+  other: `"<line>  <destination>  <eta>"` — a two-line stacked format
+  left too little clearance above the logo band in practice (confirmed
+  live, 2026-11-05: the third row's destination line visibly collided
+  with the logo).
   """
   @spec stop(
           String.t(),
@@ -309,6 +320,7 @@ defmodule Foxbus.Screens.Layout do
           boolean,
           String.t(),
           String.t() | nil,
+          boolean,
           boolean,
           boolean,
           boolean
@@ -324,7 +336,8 @@ defmodule Foxbus.Screens.Layout do
         stop_name \\ nil,
         show_destination? \\ false,
         show_line? \\ true,
-        show_logo? \\ false
+        show_logo? \\ false,
+        inline_destination? \\ false
       ) do
     case mode(arrivals, elapsed_ms) do
       :list when arrivals == [] ->
@@ -343,11 +356,11 @@ defmodule Foxbus.Screens.Layout do
         # that disagree with it.
         title_line =
           cond do
-            # show_destination? means title is a place name (a TfL station),
-            # not a direction ("To Riverside") — varying destinations below
-            # it don't contradict it the way they would a direction, so it
+            # show_destination?/inline_destination? both mean title is a
+            # place name, not a direction — varying destinations below it
+            # don't contradict it the way they would a direction, so it
             # always stays.
-            show_destination? ->
+            show_destination? or inline_destination? ->
               [{:text, 160, 54, title, text_opts(24, fg(background), background)}]
 
             multi_destination?(arrivals) and stop_name ->
@@ -364,7 +377,14 @@ defmodule Foxbus.Screens.Layout do
           end
 
         [{:background, background} | title_line] ++
-          body(arrivals, background, show_destination?, stop_name, show_line?) ++
+          body(
+            arrivals,
+            background,
+            show_destination?,
+            stop_name,
+            show_line?,
+            inline_destination?
+          ) ++
           warning_line(disruption, background) ++ logo(show_logo?)
 
       {:soon, m} ->
@@ -462,10 +482,10 @@ defmodule Foxbus.Screens.Layout do
   defp warning_line(explanation, color),
     do: [{:text, 160, 264, truncate(explanation, 16), text_opts(18, fg(color), color)}]
 
-  @logo_x 50
-  @logo_y 231
-  @logo_width 220
-  @logo_height 40
+  @logo_x 60
+  @logo_y 240
+  @logo_width 200
+  @logo_height 36
   defp logo(false), do: []
   defp logo(true), do: [{:logo, @logo_x, @logo_y}]
 
@@ -488,7 +508,7 @@ defmodule Foxbus.Screens.Layout do
       else: String.slice(text, 0, max_chars - 1) <> "…"
   end
 
-  defp body(nil, background, _show_destination?, _stop_name, _show_line?),
+  defp body(nil, background, _show_destination?, _stop_name, _show_line?, _inline_destination?),
     do: [{:text, 160, 140, "Checking times", text_opts(26, fg_dim(background), background)}]
 
   # A stop_name already gives a fixed "Mapleton → Somewhere" header (see
@@ -498,8 +518,11 @@ defmodule Foxbus.Screens.Layout do
   # destination is the only thing saying where it goes), rows here stay the
   # plain, bigger line+time text instead of repeating a destination nobody
   # needs to re-read on every row.
-  defp body(arrivals, background, show_destination?, stop_name, show_line?) do
+  defp body(arrivals, background, show_destination?, stop_name, show_line?, inline_destination?) do
     cond do
+      inline_destination? ->
+        body_rows(arrivals, background, show_line?, true)
+
       show_destination? ->
         body_with_destinations(arrivals, background, false)
 
@@ -507,7 +530,7 @@ defmodule Foxbus.Screens.Layout do
         body_with_destinations(arrivals, background, true)
 
       true ->
-        body_rows(arrivals, background, show_line?)
+        body_rows(arrivals, background, show_line?, false)
     end
   end
 
@@ -547,18 +570,23 @@ defmodule Foxbus.Screens.Layout do
   @multi_dest_row_size 30
   @multi_dest_destination_size 18
 
-  defp body_rows(arrivals, background, show_line?) do
+  defp body_rows(arrivals, background, show_line?, inline_destination?) do
     arrivals
     |> Enum.take(@max_rows)
     |> Enum.with_index()
     |> Enum.map(fn {a, i} ->
       color = if a.status == :live, do: fg(background), else: fg_dim(background)
-      text = if show_line?, do: "#{a.line}  #{Arrival.eta_text(a)}", else: Arrival.eta_text(a)
+      text = row_text(a, show_line?, inline_destination?)
       size = if String.length(text) > @row_max_chars, do: @row_size_long, else: @row_size
 
       {:text, 160, @row_y + i * @row_gap, text, text_opts(size, color, background)}
     end)
   end
+
+  defp row_text(a, true, true), do: "#{a.line}  #{a.destination}  #{Arrival.eta_text(a)}"
+  defp row_text(a, true, false), do: "#{a.line}  #{Arrival.eta_text(a)}"
+  defp row_text(a, false, true), do: "#{a.destination}  #{Arrival.eta_text(a)}"
+  defp row_text(a, false, false), do: Arrival.eta_text(a)
 
   defp body_with_destinations(arrivals, background, show_line?) do
     arrivals

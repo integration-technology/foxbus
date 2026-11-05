@@ -310,9 +310,11 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   other still shows rather than losing the whole screen. Each row is
   labelled `"dep"` or `"arr"` rather than the response's own operator
   code (there being only one operator, Chiltern Railways, nothing to
-  tell apart that way); the screen's own configured title (e.g.
-  `"Amersham Chiltern"`) keeps showing rather than being replaced by a
-  per-row destination. `lines` is accepted but unused — nothing to
+  tell apart that way), one line each alongside its destination CRS code
+  and time (`"dep  MYB  10:08"`, `"arr  AMR  10:27"`), all the same
+  size; the screen's own configured title (e.g. `"Amersham Chiltern"`)
+  keeps showing rather than being replaced by a per-row destination.
+  `lines` is accepted but unused — nothing to
   filter by, for the same one-operator reason. No disruption or
   stop-closure concept yet. At most 3 rows show on any one screen, on a
   white background (the only provider that isn't dark/navy — text flips

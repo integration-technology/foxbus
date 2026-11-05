@@ -321,6 +321,61 @@ defmodule Foxbus.Screens.LayoutTest do
     end
   end
 
+  describe "inline_destination?" do
+    test "true puts line, destination, and time on one row, same size for every row" do
+      ops =
+        Layout.stop(
+          "Amersham Chiltern",
+          [
+            arrival_to("dep", 14, "MYB") |> Map.put(:scheduled_time, ~T[10:08:00]),
+            arrival_to("arr", 27, "AMR") |> Map.put(:scheduled_time, ~T[10:27:00])
+          ],
+          0,
+          :none,
+          nil,
+          false,
+          "#FFFFFF",
+          nil,
+          false,
+          true,
+          false,
+          true
+        )
+
+      assert texts(ops) == ["Amersham Chiltern", "dep  MYB  10:08", "arr  AMR  10:27"]
+
+      sizes =
+        for {:text, _, _, text, opts} <- ops, text != "Amersham Chiltern", do: opts[:size]
+
+      assert Enum.uniq(sizes) |> length() == 1
+    end
+
+    test "true keeps the title even when the shown rows go to more than one destination" do
+      ops =
+        Layout.stop(
+          "Amersham Chiltern",
+          [arrival_to("dep", 14, "MYB"), arrival_to("arr", 27, "AMR")],
+          0,
+          :none,
+          nil,
+          false,
+          "#FFFFFF",
+          nil,
+          false,
+          true,
+          false,
+          true
+        )
+
+      assert texts(ops) |> List.first() == "Amersham Chiltern"
+    end
+
+    test "false (the default) leaves rows exactly as show_line? alone would" do
+      ops = Layout.stop("Amersham Chiltern", [arrival_to("dep", 14, "London Marylebone")])
+      assert texts(ops) == ["Amersham Chiltern", "dep  14 min"]
+    end
+  end
+
   describe "logo_size/0" do
     test "matches the actual priv/chiltern_logo.raw asset's byte size" do
       {w, h} = Layout.logo_size()
@@ -353,7 +408,7 @@ defmodule Foxbus.Screens.LayoutTest do
           true
         )
 
-      assert logo_ops(ops) == [{50, 231}]
+      assert logo_ops(ops) == [{60, 240}]
     end
 
     test "true adds a logo op to a non-empty list screen, but not a countdown screen" do
@@ -372,7 +427,7 @@ defmodule Foxbus.Screens.LayoutTest do
           true
         )
 
-      assert logo_ops(list_ops) == [{50, 231}]
+      assert logo_ops(list_ops) == [{60, 240}]
 
       countdown_ops =
         Layout.stop(
