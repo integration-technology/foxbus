@@ -50,6 +50,10 @@ defmodule Foxbus.Screens.Layout do
   @white "#FFFFFF"
   @dark "#1C1C1E"
   @dim "#9A9AA0"
+  # @dim is too light to read on a white background (Chiltern's screen,
+  # see show_logo?) — this is its equivalent there, same idea as iOS's
+  # "secondary label" grey.
+  @white_dim "#6E6E73"
   # TfL's own corporate blue (Pantone 072 C) — an approximation, same spirit
   # as @blue above, not the exact brand colour value. Used (not the roundel
   # mark, not the Johnston typeface — TfL's own brand standard explicitly
@@ -82,6 +86,18 @@ defmodule Foxbus.Screens.Layout do
   def blue, do: @blue
   def dark, do: @dark
   def tfl_navy, do: @tfl_navy
+  def white, do: @white
+
+  # Every list-mode text colour below is chosen from `background` through
+  # these two, instead of hardcoding @white/@dim, so a white background
+  # (Chiltern's, see show_logo?) gets dark text instead of invisible white
+  # text on white. Every other provider's background is dark/navy, where
+  # these just return the original @white/@dim.
+  defp fg(@white), do: @dark
+  defp fg(_background), do: @white
+
+  defp fg_dim(@white), do: @white_dim
+  defp fg_dim(_background), do: @dim
 
   @doc "Screen index after a net number of dial steps (positive clockwise), wrapping."
   @spec navigate(non_neg_integer, pos_integer, integer) :: non_neg_integer
@@ -262,17 +278,27 @@ defmodule Foxbus.Screens.Layout do
   repeat the operator code, so neither is worth a rider's eye; the time
   alone is. Set per provider (see `Foxbus.Screens`), not per stop.
 
-  `show_logo?` (default false) adds a white band with an operator's logo
-  near the bottom (170×30, at (75, 256)) — Chiltern's, currently the only
-  one (see `Foxbus.Screens`). List mode only (not the soon/arriving
-  countdown screens, whose orange/green urgency colour matters more than
-  branding there) — resolved to an actual image by `Foxbus.Screens`' own
-  `draw/2`, since this module stays pure and can't embed binary image
-  data. Placed clear of every row (3 rows end well above y=256) and sized
-  to stay inside the round display's visible circle even at its bottom
-  edge; untested against a real disruption notice there (Chiltern has
-  none yet — `disruptions?/0` is false — so `warning_line/2`'s own y=264
-  text has never actually shared this screen with it).
+  `show_logo?` (default false) adds an operator's logo, centred, near the
+  bottom (220×40, at (50, 231)) — Chiltern's, currently the only one (see
+  `Foxbus.Screens`). List mode only (not the soon/arriving countdown
+  screens, whose orange/green urgency colour matters more than branding
+  there) — resolved to an actual image by `Foxbus.Screens`' own `draw/2`,
+  since this module stays pure and can't embed binary image data. Placed
+  clear of every row (3 rows end well above y=231) and sized to stay
+  inside the round display's visible circle even at its bottom edge
+  (chord-width check: at y=270, the circle's half-width is ~116px, comfortably
+  over the logo's own 110px half-width); untested against a real
+  disruption notice there (Chiltern has none yet — `disruptions?/0` is
+  false — so `warning_line/2`'s own y=264 text has never actually shared
+  this screen with it).
+
+  A provider with `show_logo?` true is expected to pass `Layout.white/0`
+  as `background` (Chiltern does, see `Foxbus.Screens`) — the logo's own
+  asset has a baked-in white backing, meant to blend into a plain white
+  screen rather than sit on a separate white band on a dark one. `fg/1`
+  and `fg_dim/1` switch every list-mode text colour to dark on a white
+  background so text stays legible — every other provider's dark/navy
+  background is unaffected.
   """
   @spec stop(
           String.t(),
@@ -304,8 +330,8 @@ defmodule Foxbus.Screens.Layout do
       :list when arrivals == [] ->
         [
           {:background, background},
-          {:text, 160, 54, title, text_opts(24, @white, background)},
-          {:text, 160, 140, "No more buses today", text_opts(22, @dim, background)}
+          {:text, 160, 54, title, text_opts(24, fg(background), background)},
+          {:text, 160, 140, "No more buses today", text_opts(22, fg_dim(background), background)}
         ] ++ warning_line(disruption, background) ++ logo(show_logo?)
 
       :list ->
@@ -322,19 +348,19 @@ defmodule Foxbus.Screens.Layout do
             # it don't contradict it the way they would a direction, so it
             # always stays.
             show_destination? ->
-              [{:text, 160, 54, title, text_opts(24, @white, background)}]
+              [{:text, 160, 54, title, text_opts(24, fg(background), background)}]
 
             multi_destination?(arrivals) and stop_name ->
               [
                 {:text, 160, 54, truncate(direction_label(stop_name, title), @direction_chars),
-                 text_opts(@direction_size, @dim, background)}
+                 text_opts(@direction_size, fg_dim(background), background)}
               ]
 
             multi_destination?(arrivals) ->
               []
 
             true ->
-              [{:text, 160, 54, title, text_opts(24, @white, background)}]
+              [{:text, 160, 54, title, text_opts(24, fg(background), background)}]
           end
 
         [{:background, background} | title_line] ++
@@ -434,10 +460,10 @@ defmodule Foxbus.Screens.Layout do
   # One line only, so a long title is truncated rather than wrapped (contrast
   # closed/2, which has the whole screen to wrap into).
   defp warning_line(explanation, color),
-    do: [{:text, 160, 264, truncate(explanation, 16), text_opts(18, @white, color)}]
+    do: [{:text, 160, 264, truncate(explanation, 16), text_opts(18, fg(color), color)}]
 
-  @logo_x 75
-  @logo_y 256
+  @logo_x 50
+  @logo_y 231
   defp logo(false), do: []
   defp logo(true), do: [{:logo, @logo_x, @logo_y}]
 
@@ -450,7 +476,7 @@ defmodule Foxbus.Screens.Layout do
   end
 
   defp body(nil, background, _show_destination?, _stop_name, _show_line?),
-    do: [{:text, 160, 140, "Checking times", text_opts(26, @dim, background)}]
+    do: [{:text, 160, 140, "Checking times", text_opts(26, fg_dim(background), background)}]
 
   # A stop_name already gives a fixed "Mapleton → Somewhere" header (see
   # title_line above) that speaks for every row, including a loop service's
@@ -513,7 +539,7 @@ defmodule Foxbus.Screens.Layout do
     |> Enum.take(@max_rows)
     |> Enum.with_index()
     |> Enum.map(fn {a, i} ->
-      color = if a.status == :live, do: @white, else: @dim
+      color = if a.status == :live, do: fg(background), else: fg_dim(background)
       text = if show_line?, do: "#{a.line}  #{Arrival.eta_text(a)}", else: Arrival.eta_text(a)
       size = if String.length(text) > @row_max_chars, do: @row_size_long, else: @row_size
 
@@ -526,7 +552,7 @@ defmodule Foxbus.Screens.Layout do
     |> Enum.take(@multi_dest_max_rows)
     |> Enum.with_index()
     |> Enum.flat_map(fn {a, i} ->
-      color = if a.status == :live, do: @white, else: @dim
+      color = if a.status == :live, do: fg(background), else: fg_dim(background)
       y = @row_y + i * @multi_dest_row_gap
 
       top_label =
@@ -537,7 +563,7 @@ defmodule Foxbus.Screens.Layout do
         # Shrunk from 24 to 20 chars to match the bigger font — a
         # proportional guess, also unverified.
         {:text, 160, y + 24, truncate(a.destination, 20),
-         text_opts(@multi_dest_destination_size, @dim, background)}
+         text_opts(@multi_dest_destination_size, fg_dim(background), background)}
       ]
     end)
   end
@@ -558,6 +584,7 @@ defmodule Foxbus.Screens.Layout do
     {text_bg, color} =
       case background do
         @dark -> {@dark, @dim}
+        @white -> {@white, @white_dim}
         hex -> {hex, @white}
       end
 

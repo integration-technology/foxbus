@@ -314,8 +314,10 @@ its departures (see `Foxbus.Ports.Provider.all/0`):
   `"Amersham Chiltern"`) keeps showing rather than being replaced by a
   per-row destination. `lines` is accepted but unused — nothing to
   filter by, for the same one-operator reason. No disruption or
-  stop-closure concept yet. At most 3 rows show on any one screen, with
-  a Chiltern Railways logo at the bottom. Needs a free
+  stop-closure concept yet. At most 3 rows show on any one screen, on a
+  white background (the only provider that isn't dark/navy — text flips
+  to dark automatically) with a centred Chiltern Railways logo at the
+  bottom. Needs a free
   Rail Data Marketplace account (register at https://raildata.org.uk,
   subscribe to "Live Departure Board"); the API key — labelled "Consumer
   key" on the product's own Specification tab, sent as a plain `x-apikey`

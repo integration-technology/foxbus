@@ -117,6 +117,25 @@ defmodule Foxbus.Screens.LayoutTest do
       assert Layout.dark() == "#1C1C1E"
       assert Layout.tfl_navy() =~ ~r/^#[0-9A-F]{6}$/
     end
+
+    test "a white background (Chiltern's) flips text to dark instead of invisible white" do
+      ops =
+        Layout.stop(
+          "Amersham Chiltern",
+          [arrival("dep", 14, :live, ~T[15:07:00]), arrival("arr", 40, :scheduled, ~T[15:33:00])],
+          0,
+          :none,
+          nil,
+          false,
+          Layout.white()
+        )
+
+      [_background, title, live_row, scheduled_row] = ops
+      assert elem(title, 4)[:color] != "#FFFFFF"
+      assert elem(live_row, 4)[:color] != "#FFFFFF"
+      assert elem(scheduled_row, 4)[:color] != "#FFFFFF"
+      assert elem(live_row, 4)[:color] != elem(scheduled_row, 4)[:color]
+    end
   end
 
   describe "a shared stop with more than one destination" do
@@ -326,7 +345,7 @@ defmodule Foxbus.Screens.LayoutTest do
           true
         )
 
-      assert logo_ops(ops) == [{75, 256}]
+      assert logo_ops(ops) == [{50, 231}]
     end
 
     test "true adds a logo op to a non-empty list screen, but not a countdown screen" do
@@ -345,7 +364,7 @@ defmodule Foxbus.Screens.LayoutTest do
           true
         )
 
-      assert logo_ops(list_ops) == [{75, 256}]
+      assert logo_ops(list_ops) == [{50, 231}]
 
       countdown_ops =
         Layout.stop(

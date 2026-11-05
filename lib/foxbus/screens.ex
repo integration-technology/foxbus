@@ -183,9 +183,11 @@ defmodule Foxbus.Screens do
   # leaving it absent, which would otherwise show "Checking times" forever
   # (closure_status/2 reads an absent key as "no check has landed yet").
   # A provider gets its own recognisable look on its stop screens' plain
-  # (non-urgent) background — see Layout.stop/6's moduledoc. Just TfL for
-  # now; every other provider keeps the ordinary dark background.
+  # (non-urgent) background — see Layout.stop/6's moduledoc. Chiltern's is
+  # white, to match its logo's own white backing (see show_logo?); TfL's
+  # is navy; every other provider keeps the ordinary dark background.
   defp stop_background(:tfl), do: Layout.tfl_navy()
+  defp stop_background(:chiltern_rail), do: Layout.white()
   defp stop_background(_provider), do: Layout.dark()
 
   # A TfL Underground screen only ever watches one line, so naming it on
