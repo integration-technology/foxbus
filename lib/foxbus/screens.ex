@@ -8,19 +8,23 @@ defmodule Foxbus.Screens do
   moves off the splash onto the first stop by itself, so a restart shows live
   times without a manual turn. Any real interaction cancels this.
 
-  No alarm sounds by default — pressing the dial on a stop's countdown
-  screen (orange "soon", or green "arriving") arms its next bus (see
-  `Foxbus.Screens.Layout.press/2`); the bell starts chirping once that bus
-  is 5 minutes or less away. A press on the plain list (more than 10
-  minutes out) does nothing — there's no single bus on screen yet to arm.
-  The Nest only chirps and wakes the screen for the stop currently on
-  display, not for an armed bus at a stop nobody's looking at; turning the
-  dial away stops the chirp, and turning back resumes it. It keeps chirping
-  until either the dial is pressed again to mute it, or the bus has gone (a
-  different bus arrives next, or it drops off the board). While chirping, a
-  `NestGen2.Power.keep_awake/1` hold keeps the screen lit instead of
-  repeatedly calling `Power.wake/0`; the hold is released the moment
-  chirping stops, for whichever reason.
+  No alarm sounds by default — a press on any stop screen, list or
+  countdown, arms its next due bus (`next_bus/2`, see
+  `Foxbus.Screens.Layout.press/2`): a small bell marks it, even while it's
+  still minutes away on the plain list. The bell starts chirping once that
+  bus is 5 minutes or less away, at whichever stop it's armed on — not just
+  the one currently on display. If that stop isn't the one shown when its
+  bell starts ringing, the display jumps to it (`maybe_jump_to_ringing/1`);
+  two stops can be armed at once, in which case whichever is already shown
+  (if either) keeps the screen once it starts ringing, otherwise the first
+  of the two to start ringing wins it. It keeps chirping until either the
+  dial is pressed again to mute it, or the bus has gone (a different bus
+  arrives next, or it drops off the board) — pressed while looking at a
+  different, non-ringing stop, the dial arms or disarms that stop's own
+  next bus instead, leaving any other stop's armed alarm alone. While
+  chirping, a `NestGen2.Power.keep_awake/1` hold keeps the screen lit
+  instead of repeatedly calling `Power.wake/0`; the hold is released the
+  moment chirping stops, for whichever reason.
 
   When Carousel names a stop's exact ATCO code as affected by a notice, its
   screen turns red with the direction and the notice's explanation in place of
@@ -321,10 +325,11 @@ defmodule Foxbus.Screens do
       stop == :splash ->
         {:noreply, state |> open_settings() |> render()}
 
-      # Arming only makes sense once there's a single bus on screen to arm
-      # (the orange "soon" or green "arriving" countdown) — a press on the
-      # plain list does nothing, there's no one bus here yet to pick.
-      match?({:soon, _}, mode(state, stop)) or match?({:arriving, _}, mode(state, stop)) ->
+      # Arms (or disarms) whichever bus is next due — same one a countdown
+      # screen would show — regardless of how far out it still is; the list
+      # screen marks it with a small bell (see Layout.stop/12's moduledoc).
+      # Does nothing if there's no next bus to pick (an empty board).
+      true ->
         case next_bus(state, stop) do
           nil ->
             {:noreply, state}
@@ -335,9 +340,6 @@ defmodule Foxbus.Screens do
             state = put_in(state.bells[stop], {Layout.bus_key(bus), new_bell})
             {:noreply, state |> render() |> update_chirp()}
         end
-
-      true ->
-        {:noreply, state}
     end
   end
 
@@ -446,9 +448,14 @@ defmodule Foxbus.Screens do
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  # Chirps only for the stop currently on screen — a bus going off at a stop
-  # nobody's looking at neither sounds nor jumps the screen to it.
+  # An armed bus that starts ringing (reaches :arriving) jumps the display
+  # to its own screen first, if it isn't already shown — see the moduledoc.
+  # Only then does chirping/the power hold get (re)computed for whichever
+  # stop is now current, same as before this existed.
   defp update_chirp(state) do
+    old_index = state.index
+    state = maybe_jump_to_ringing(state)
+    state = if state.index != old_index, do: render(state), else: state
     stop = current(state)
 
     chirping =
@@ -470,6 +477,44 @@ defmodule Foxbus.Screens do
         send(self(), :chirp)
         {:ok, hold} = Power.keep_awake(:alarm)
         %{state | chirping: chirping, power_hold: hold}
+    end
+  end
+
+  # Suppressed while settings is open (see the moduledoc's deliberate
+  # trade-off on that) — settings freezes the index on :splash anyway, so
+  # this would otherwise yank the display out from under a Wi-Fi flow.
+  defp maybe_jump_to_ringing(%{settings: settings} = state) when settings != nil, do: state
+
+  defp maybe_jump_to_ringing(state) do
+    ringing? = fn s -> Layout.chirping?(mode(state, s), bell(state, s)) end
+    target = pick_display(current(state), state.screens, ringing?)
+
+    if target == current(state) do
+      state
+    else
+      %{state | index: Enum.find_index(state.screens, &(&1 == target))}
+    end
+  end
+
+  @doc false
+  # Pure so it's directly testable without a running GenServer or any
+  # device mocking — see screens_test.exs. `ringing?` is a stop's own
+  # Layout.chirping?/2 result (never called on :splash). Already showing a
+  # ringing stop wins over any other that's also ringing (see the
+  # moduledoc on two armed at once: no reason to interrupt what's already
+  # being looked at); otherwise the first ringing stop in `screens`' own
+  # order wins; with none ringing, `current` is unchanged.
+  @spec pick_display(atom, [atom], (atom -> boolean)) :: atom
+  def pick_display(current, screens, ringing?) do
+    cond do
+      current != :splash and ringing?.(current) ->
+        current
+
+      stop = Enum.find(screens, fn s -> s != :splash and ringing?.(s) end) ->
+        stop
+
+      true ->
+        current
     end
   end
 

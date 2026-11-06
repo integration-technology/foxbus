@@ -21,11 +21,13 @@ defmodule Foxbus.Screens.Layout do
       row, including a loop service's own minor destination-text variants
       (confirmed live: Carousel's "Chesham + Chartridge" differs slightly by
       which way round a circular route runs), so rows there stay the plain,
-      bigger line+time text instead of repeating it. No alarm can be set
-      from here — only the countdown screens below have a single bus to arm
+      bigger line+time text instead of repeating it. A press here arms the
+      next due bus (`next_due/1`, the same bus a countdown screen would
+      show next) — a small bell icon marks whichever row that is
     * 10 minutes or less (`:soon`) — orange, the minutes as a large countdown
     * 5 minutes or less (`:arriving`) — green; a bell armed by a press (see
-      `press/2`) chirps here, until muted or the bus has gone
+      `press/2`) chirps here, until muted or the bus has gone — including
+      one armed from the list screen above, once it's counted down this far
 
   Any of the three gets a short line of the notice's own title, below the
   countdown, when this stop has an active disruption notice on one of its
@@ -383,7 +385,8 @@ defmodule Foxbus.Screens.Layout do
             show_destination?,
             stop_name,
             show_line?,
-            inline_destination?
+            inline_destination?,
+            bell
           ) ++
           warning_line(disruption, background) ++ logo(show_logo?)
 
@@ -508,8 +511,16 @@ defmodule Foxbus.Screens.Layout do
       else: String.slice(text, 0, max_chars - 1) <> "…"
   end
 
-  defp body(nil, background, _show_destination?, _stop_name, _show_line?, _inline_destination?),
-    do: [{:text, 160, 140, "Checking times", text_opts(26, fg_dim(background), background)}]
+  defp body(
+         nil,
+         background,
+         _show_destination?,
+         _stop_name,
+         _show_line?,
+         _inline_destination?,
+         _bell
+       ),
+       do: [{:text, 160, 140, "Checking times", text_opts(26, fg_dim(background), background)}]
 
   # A stop_name already gives a fixed "Mapleton → Somewhere" header (see
   # title_line above) that speaks for every row, including a loop service's
@@ -518,19 +529,27 @@ defmodule Foxbus.Screens.Layout do
   # destination is the only thing saying where it goes), rows here stay the
   # plain, bigger line+time text instead of repeating a destination nobody
   # needs to re-read on every row.
-  defp body(arrivals, background, show_destination?, stop_name, show_line?, inline_destination?) do
+  defp body(
+         arrivals,
+         background,
+         show_destination?,
+         stop_name,
+         show_line?,
+         inline_destination?,
+         bell
+       ) do
     cond do
       inline_destination? ->
-        body_rows(arrivals, background, show_line?, true)
+        body_rows(arrivals, background, show_line?, true, bell)
 
       show_destination? ->
-        body_with_destinations(arrivals, background, false)
+        body_with_destinations(arrivals, background, false, bell)
 
       multi_destination?(arrivals) and is_nil(stop_name) ->
-        body_with_destinations(arrivals, background, true)
+        body_with_destinations(arrivals, background, true, bell)
 
       true ->
-        body_rows(arrivals, background, show_line?, false)
+        body_rows(arrivals, background, show_line?, false, bell)
     end
   end
 
@@ -570,16 +589,20 @@ defmodule Foxbus.Screens.Layout do
   @multi_dest_row_size 30
   @multi_dest_destination_size 18
 
-  defp body_rows(arrivals, background, show_line?, inline_destination?) do
+  defp body_rows(arrivals, background, show_line?, inline_destination?, bell) do
+    next = next_due(arrivals)
+
     arrivals
     |> Enum.take(@max_rows)
     |> Enum.with_index()
-    |> Enum.map(fn {a, i} ->
+    |> Enum.flat_map(fn {a, i} ->
       color = if a.status == :live, do: fg(background), else: fg_dim(background)
       text = row_text(a, show_line?, inline_destination?)
       size = if String.length(text) > @row_max_chars, do: @row_size_long, else: @row_size
+      y = @row_y + i * @row_gap
 
-      {:text, 160, @row_y + i * @row_gap, text, text_opts(size, color, background)}
+      [{:text, 160, y, text, text_opts(size, color, background)}] ++
+        row_bell(a, next, bell, y, background)
     end)
   end
 
@@ -588,7 +611,9 @@ defmodule Foxbus.Screens.Layout do
   defp row_text(a, false, true), do: "#{a.destination}  #{Arrival.eta_text(a)}"
   defp row_text(a, false, false), do: Arrival.eta_text(a)
 
-  defp body_with_destinations(arrivals, background, show_line?) do
+  defp body_with_destinations(arrivals, background, show_line?, bell) do
+    next = next_due(arrivals)
+
     arrivals
     |> Enum.take(@multi_dest_max_rows)
     |> Enum.with_index()
@@ -605,8 +630,35 @@ defmodule Foxbus.Screens.Layout do
         # proportional guess, also unverified.
         {:text, 160, y + 24, truncate(a.destination, 20),
          text_opts(@multi_dest_destination_size, fg_dim(background), background)}
-      ]
+      ] ++ row_bell(a, next, bell, y, background)
     end)
+  end
+
+  # Marks whichever list row is the armed next bus — the same one
+  # `Foxbus.Screens` would arm from a press here (see the moduledoc) — with
+  # a small bell, same glyphs as `bell_icon/2`'s big countdown-screen one
+  # but sized for a row instead of the whole screen. Fixed at x=248
+  # (checked against the safe circle at every row's own y, same rule as
+  # the rest of this file's pixel budget) rather than placed relative to
+  # the row's own text, which has no measured width to place beside; a
+  # long row's text could in principle run under it, same caveat as
+  # everywhere else here that guesses at text width from character count.
+  @list_bell_x 248
+  @list_bell_size 20
+  defp row_bell(_a, nil, _bell, _y, _background), do: []
+  defp row_bell(_a, _next, :none, _y, _background), do: []
+
+  defp row_bell(a, next, bell, y, background) do
+    if bus_key(a) == bus_key(next) do
+      glyph = if bell == :armed, do: @bell_armed, else: @bell_silenced
+
+      [
+        {:text, @list_bell_x, y, glyph,
+         [font: :icons] ++ text_opts(@list_bell_size, fg(background), background)}
+      ]
+    else
+      []
+    end
   end
 
   @doc """

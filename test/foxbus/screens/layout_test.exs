@@ -217,6 +217,20 @@ defmodule Foxbus.Screens.LayoutTest do
 
       assert texts(ops) == ["To Mapleton", "105  14 min", "1  40 min"]
     end
+
+    test "a bell armed here marks the next due row's two-line block, same as a plain list" do
+      ops =
+        Layout.stop(
+          "To Riverside",
+          [arrival_to("104", 11, "Riverside"), arrival_to("105", 18, "Hilltown")],
+          0,
+          :armed
+        )
+
+      [top_label_y] = for {:text, _, y, "104  11 min", _} <- ops, do: y
+      [icon_y] = for {:text, _, y, _, opts} <- ops, opts[:font] == :icons, do: y
+      assert icon_y == top_label_y
+    end
   end
 
   describe "show_destination? — a single-line stop (TfL Underground)" do
@@ -572,6 +586,58 @@ defmodule Foxbus.Screens.LayoutTest do
       earlier = arrival("104", 11, :live, ~T[14:41:00])
       later = arrival("104", 50, :live, ~T[15:39:00])
       refute Layout.bus_key(earlier) == Layout.bus_key(later)
+    end
+
+    test "a bell armed on the list marks the next due row, not any other" do
+      icon_xs = fn bell ->
+        ops =
+          Layout.stop(
+            "To Mapleton",
+            [arrival("105", 14), arrival("1", 40)],
+            0,
+            bell
+          )
+
+        for {:text, x, _, _, opts} <- ops, opts[:font] == :icons, do: x
+      end
+
+      assert icon_xs.(:armed) == [248]
+      assert icon_xs.(:silenced) == [248]
+      assert icon_xs.(:none) == []
+    end
+
+    test "list-mode bell uses the same two glyphs as the countdown one" do
+      ops = Layout.stop("To Mapleton", [arrival("105", 14)], 0, :armed)
+
+      assert [{:text, _, _, "\u{E7F7}", opts}] =
+               for({:text, _, _, _, o} = op <- ops, o[:font] == :icons, do: op)
+
+      assert opts[:font] == :icons
+
+      ops = Layout.stop("To Mapleton", [arrival("105", 14)], 0, :silenced)
+
+      assert [{:text, _, _, "\u{E7F6}", _}] =
+               for({:text, _, _, _, o} = op <- ops, o[:font] == :icons, do: op)
+    end
+
+    test "a cancelled next bus means the bell belongs to the one behind it instead" do
+      cancelled = arrival("105", 3, :scheduled) |> Map.put(:cancelled?, true)
+      behind = arrival("1", 14)
+
+      ops = Layout.stop("To Mapleton", [cancelled, behind], 0, :armed)
+
+      [cancelled_y, behind_y] =
+        for {:text, _, y, _, opts} <- ops |> Enum.drop(2), opts[:font] != :icons, do: y
+
+      [icon_y] = for {:text, _, y, _, opts} <- ops, opts[:font] == :icons, do: y
+
+      assert icon_y == behind_y
+      refute icon_y == cancelled_y
+    end
+
+    test "no bell at all when none is armed" do
+      ops = Layout.stop("To Mapleton", [arrival("105", 14), arrival("1", 40)])
+      assert for({:text, _, _, _, opts} <- ops, opts[:font] == :icons, do: opts) == []
     end
   end
 
