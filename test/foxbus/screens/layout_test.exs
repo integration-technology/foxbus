@@ -227,7 +227,12 @@ defmodule Foxbus.Screens.LayoutTest do
           :armed
         )
 
-      [top_label_y] = for {:text, _, y, "104  11 min", _} <- ops, do: y
+      [top_label_y] =
+        for {:text, _, y, text, opts} <- ops,
+            opts[:font] != :icons,
+            String.starts_with?(text, "104"),
+            do: y
+
       [icon_y] = for {:text, _, y, _, opts} <- ops, opts[:font] == :icons, do: y
       assert icon_y == top_label_y
     end
@@ -601,8 +606,9 @@ defmodule Foxbus.Screens.LayoutTest do
         for {:text, x, _, _, opts} <- ops, opts[:font] == :icons, do: x
       end
 
-      assert icon_xs.(:armed) == [248]
-      assert icon_xs.(:silenced) == [248]
+      assert [armed_x] = icon_xs.(:armed)
+      assert [silenced_x] = icon_xs.(:silenced)
+      assert armed_x == silenced_x
       assert icon_xs.(:none) == []
     end
 
@@ -638,6 +644,37 @@ defmodule Foxbus.Screens.LayoutTest do
     test "no bell at all when none is armed" do
       ops = Layout.stop("To Mapleton", [arrival("105", 14), arrival("1", 40)])
       assert for({:text, _, _, _, opts} <- ops, opts[:font] == :icons, do: opts) == []
+    end
+
+    test "the bell sits to the left of the departure time, not glued to its right" do
+      ops = Layout.stop("To Mapleton", [arrival("105", 14, :live, ~T[15:07:00])], 0, :armed)
+
+      [icon_x] = for {:text, x, _, _, opts} <- ops, opts[:font] == :icons, do: x
+      [row_text] = for {:text, _, _, t, opts} <- ops, opts[:font] != :icons, t =~ "15:07", do: t
+
+      # align: :center, so the icon's x is its own midpoint — left of the
+      # row's own centre (160) puts it on the label's side of the gap, not
+      # past the departure time.
+      assert String.starts_with?(row_text, "105")
+      assert icon_x < 160
+    end
+
+    test "an armed row renders at the same font size as its unarmed neighbours" do
+      ops =
+        Layout.stop(
+          "To Mapleton",
+          [arrival("105", 14, :live, ~T[15:07:00]), arrival("1", 40, :live, ~T[15:33:00])],
+          0,
+          :armed
+        )
+
+      row_sizes =
+        for {:text, _, _, t, opts} <- ops,
+            opts[:font] != :icons,
+            t != "To Mapleton",
+            do: opts[:size]
+
+      assert Enum.uniq(row_sizes) |> length() == 1
     end
   end
 

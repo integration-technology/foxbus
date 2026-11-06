@@ -597,19 +597,42 @@ defmodule Foxbus.Screens.Layout do
     |> Enum.with_index()
     |> Enum.flat_map(fn {a, i} ->
       color = if a.status == :live, do: fg(background), else: fg_dim(background)
-      text = row_text(a, show_line?, inline_destination?)
-      size = if String.length(text) > @row_max_chars, do: @row_size_long, else: @row_size
+      has_bell? = has_bell?(a, next, bell)
+      {label, text} = row_text(a, show_line?, inline_destination?, has_bell?)
+      size = row_size(label, Arrival.eta_text(a))
       y = @row_y + i * @row_gap
 
       [{:text, 160, y, text, text_opts(size, color, background)}] ++
-        row_bell(a, next, bell, y, background)
+        row_bell(bell, has_bell?, y, background, label, text, size)
     end)
   end
 
-  defp row_text(a, true, true), do: "#{a.line}  #{a.destination}  #{Arrival.eta_text(a)}"
-  defp row_text(a, true, false), do: "#{a.line}  #{Arrival.eta_text(a)}"
-  defp row_text(a, false, true), do: "#{a.destination}  #{Arrival.eta_text(a)}"
-  defp row_text(a, false, false), do: Arrival.eta_text(a)
+  defp row_text(a, true, true, bell?), do: row_text_parts("#{a.line}  #{a.destination}", bell?, a)
+  defp row_text(a, true, false, bell?), do: row_text_parts(a.line, bell?, a)
+  defp row_text(a, false, true, bell?), do: row_text_parts(a.destination, bell?, a)
+  defp row_text(a, false, false, bell?), do: row_text_parts("", bell?, a)
+
+  # The gap before the eta is wider when a bell will sit in it (see
+  # row_bell/7) so the icon doesn't crowd the time -- Owain found them
+  # touching on a live capture (IMG_0219, 2026-11-06).
+  defp row_text_parts("", bell?, a),
+    do: {"", if(bell?, do: "   ", else: "") <> Arrival.eta_text(a)}
+
+  defp row_text_parts(label, bell?, a) do
+    gap = if bell?, do: "       ", else: "  "
+    {label, label <> gap <> Arrival.eta_text(a)}
+  end
+
+  # Sized off the label and eta alone, not the wider bell gap above — so an
+  # armed row's extra spacing doesn't shrink its font relative to its
+  # neighbours. Owain asked for exactly this ("all should be the same
+  # size") on the Chiltern bidirectional screen earlier; the same rule
+  # applies here.
+  defp row_size(label, eta) do
+    if String.length(label) + 2 + String.length(eta) > @row_max_chars,
+      do: @row_size_long,
+      else: @row_size
+  end
 
   defp body_with_destinations(arrivals, background, show_line?, bell) do
     next = next_due(arrivals)
@@ -620,9 +643,9 @@ defmodule Foxbus.Screens.Layout do
     |> Enum.flat_map(fn {a, i} ->
       color = if a.status == :live, do: fg(background), else: fg_dim(background)
       y = @row_y + i * @multi_dest_row_gap
-
-      top_label =
-        if show_line?, do: "#{a.line}  #{Arrival.eta_text(a)}", else: Arrival.eta_text(a)
+      has_bell? = has_bell?(a, next, bell)
+      label = if show_line?, do: a.line, else: ""
+      {^label, top_label} = row_text_parts(label, has_bell?, a)
 
       [
         {:text, 160, y, top_label, text_opts(@multi_dest_row_size, color, background)},
@@ -630,35 +653,58 @@ defmodule Foxbus.Screens.Layout do
         # proportional guess, also unverified.
         {:text, 160, y + 24, truncate(a.destination, 20),
          text_opts(@multi_dest_destination_size, fg_dim(background), background)}
-      ] ++ row_bell(a, next, bell, y, background)
+      ] ++ row_bell(bell, has_bell?, y, background, label, top_label, @multi_dest_row_size)
     end)
   end
+
+  defp has_bell?(_a, nil, _bell), do: false
+  defp has_bell?(_a, _next, :none), do: false
+  defp has_bell?(a, next, _bell), do: bus_key(a) == bus_key(next)
 
   # Marks whichever list row is the armed next bus — the same one
   # `Foxbus.Screens` would arm from a press here (see the moduledoc) — with
   # a small bell, same glyphs as `bell_icon/2`'s big countdown-screen one
-  # but sized for a row instead of the whole screen. Fixed at x=248
-  # (checked against the safe circle at every row's own y, same rule as
-  # the rest of this file's pixel budget) rather than placed relative to
-  # the row's own text, which has no measured width to place beside; a
-  # long row's text could in principle run under it, same caveat as
-  # everywhere else here that guesses at text width from character count.
-  @list_bell_x 248
+  # but sized for a row instead of the whole screen. Placed just left of
+  # that row's departure time, not glued to its right edge: Owain found that
+  # cramped on a live capture (IMG_0219, 2026-11-06) and asked for the bell
+  # to move to the time's left with more space before it. The x comes from
+  # the label's own character count (~size/2 px per character matched a
+  # handful of measured strings closely enough to trust), since there's no
+  # font-metrics API on this device to measure the row's real rendered width
+  # (see @row_max_chars above) — an unverified guess, like every other pixel
+  # placement in this file, good until an unusually long label pushes the
+  # icon under the eta.
   @list_bell_size 20
-  defp row_bell(_a, nil, _bell, _y, _background), do: []
-  defp row_bell(_a, _next, :none, _y, _background), do: []
+  @bell_gap 10
+  defp row_bell(_bell, false, _y, _background, _label, _text, _size), do: []
 
-  defp row_bell(a, next, bell, y, background) do
-    if bus_key(a) == bus_key(next) do
-      glyph = if bell == :armed, do: @bell_armed, else: @bell_silenced
+  defp row_bell(bell, true, y, background, label, text, size) do
+    glyph = if bell == :armed, do: @bell_armed, else: @bell_silenced
+    left_edge = 160 - text_width_estimate(text, size) / 2
+    bell_x = round(left_edge + text_width_estimate(label, size) + @bell_gap)
 
-      [
-        {:text, @list_bell_x, y, glyph,
-         [font: :icons] ++ text_opts(@list_bell_size, fg(background), background)}
-      ]
-    else
-      []
-    end
+    [
+      {:text, bell_x, y, glyph,
+       [font: :icons] ++ text_opts(@list_bell_size, fg(background), background, :left)}
+    ]
+  end
+
+  # A space renders much narrower than any other character (measured 8px at
+  # size 36 vs ~20px for a digit), and a letter renders wider than a digit
+  # (measured "dep MYB" ~17px/letter vs "105" ~20px/digit... both close
+  # enough together that one "non-space" bucket mostly worked, except a
+  # letter-only label underestimated by ~12px against row_bell/7's real
+  # renders and crowded the label instead of clearing it). Still just a
+  # guess, like every other character-count width used in this file —
+  # there's no font-metrics API on this device.
+  defp text_width_estimate(text, size) do
+    text
+    |> String.to_charlist()
+    |> Enum.reduce(0, fn
+      ?\s, acc -> acc + size * 0.22
+      c, acc when c in ?0..?9 or c == ?: -> acc + size * 0.5
+      _char, acc -> acc + size * 0.62
+    end)
   end
 
   @doc """
@@ -685,6 +731,6 @@ defmodule Foxbus.Screens.Layout do
     ops ++ [{:text, 160, @clock_y, text, text_opts(@clock_size, color, text_bg)}]
   end
 
-  defp text_opts(size, color, background),
-    do: [size: size, color: color, background: background, align: :center]
+  defp text_opts(size, color, background, align \\ :center),
+    do: [size: size, color: color, background: background, align: align]
 end
